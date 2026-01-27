@@ -4,13 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ddkf"
-version = "0.3.0"
-description = "Dual Dynamic Kernel Filtering (2DKF) — minimal package"
+version = "3.0.0"
+description = "Dual Dynamic Kernel Filtering (DDKF) — Minimal package with arbitrary kernels and learnable parameters"
 readme = "README.md"
-authors = [ { name = "Yunis Kahalan", email = "ykahalan@gmail.com" } ]
+authors = [
+    { name = "Skander Bensegueni", email = "skander.bensegueni@example.com" },
+    { name = "Yunis Kahalan", email = "ykahalan@gmail.com" }
+]
 license = { text = "MIT" }
 requires-python = ">=3.8"
-dependencies = ["numpy>=1.21", "scipy>=1.7", "matplotlib>=3.4"]
+dependencies = [
+    "numpy>=1.21",
+]
+
+[project.optional-dependencies]
+torch = ["torch>=1.9"]
+plot = ["matplotlib>=3.4"]
+all = ["torch>=1.9", "matplotlib>=3.4"]
+
+[project.urls]
+Homepage = "https://github.com/ykahalan/ddkf"
+Repository = "https://github.com/ykahalan/ddkf"
+Documentation = "https://github.com/ykahalan/ddkf/blob/main/README.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
