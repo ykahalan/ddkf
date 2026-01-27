@@ -51,7 +51,7 @@ Features
 - **No scipy**: Pure PyTorch implementation
 """
 
-from .ddkf_pytorch import (
+from .ddkf import (
     DDKFLayer,
     DDKFFeatureExtractor,
     Kernels,
