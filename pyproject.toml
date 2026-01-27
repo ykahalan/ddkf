@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ddkf"
-version = "3.0.0"
+version = "2.0.0"
 description = "Dual Dynamic Kernel Filtering (DDKF) — Minimal package with arbitrary kernels and learnable parameters"
 readme = "README.md"
 authors = [
