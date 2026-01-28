@@ -96,8 +96,13 @@ class Kernels:
         return torch.exp(-0.5 * ((x - center) / sigma) ** 2)
     
     @staticmethod
-    def get(name: str):
-        """Get kernel by name."""
+    def get(name):
+        """Get kernel by name or return callable directly."""
+        # If it's already callable, return it
+        if callable(name):
+            return name
+        
+        # Otherwise look up by string name
         kernels = {
             'polynomial': Kernels.polynomial,
             'gaussian': Kernels.gaussian,
@@ -124,8 +129,11 @@ class DDKFLayer(nn.Module):
     
     Parameters
     ----------
-    kernel_names : list of str, optional
-        Kernel names. Default: ['polynomial', 'gaussian'] (hybrid)
+    kernel_names : list of str or callable, optional
+        Kernel names (str) or custom kernel functions (callable).
+        Custom kernels should accept (x, **params) and return torch.Tensor.
+        Default: ['polynomial', 'gaussian'] (hybrid)
+        Example: [my_custom_kernel, 'gaussian'] or ['polynomial', lambda x, scale=1.0: x * scale]
     c_smart_min : float, default=0.9
         Smart minimum threshold (alpha threshold in original code)
     c_smoothing : float, default=0.12
