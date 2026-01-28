@@ -361,8 +361,8 @@ class DDKFLayer(nn.Module):
                 complex_spec = tfr[b, i] * torch.exp(1j * tfr_phase[b, i])
                 # IFFT
                 time_signal = torch.fft.ifft(complex_spec)
-                # Sum magnitudes (matches MATLAB: sum(recov,2))
-                windows_recovered.append(torch.sum(torch.abs(time_signal)))
+                complex_sum = torch.sum(time_signal)  # Sum complex FIRST
+                windows_recovered.append(torch.abs(complex_sum))  # Magnitude SECOND
             recovered.append(torch.stack(windows_recovered))
         
         result = torch.stack(recovered)
