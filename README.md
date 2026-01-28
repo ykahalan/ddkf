@@ -60,8 +60,8 @@ if __name__ == "__main__":
         gamma=[0.5, 0.5],
         window_size=window_size,
         step_size=step_size,
-        alpha=c_smart_min,
-        beta=c_smoothing,
+        c_smart_min=c_smart_min,
+        c_smoothing=c_smoothing,
         interp_factor=0.25  # NEW: Cubic interpolation!
     )
     
