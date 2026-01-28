@@ -186,42 +186,6 @@ kernel_names=['polynomial', 'gaussian']
 gamma=[0.5, 0.5]
 ```
 
-## Migrating from v3.x
-
-### Parameter Name Changes
-
-| v3.x | v4.0 | Purpose |
-|------|------|---------|
-| `alpha` | `c_smoothing` | Beta threshold (smoothing) |
-| `beta` | `c_smart_min` | Alpha threshold (smart minimum) |
-
-### Quick Migration
-
-**Option 1: Update parameter names (recommended)**
-```python
-# OLD (v3.x)
-layer = DDKFLayer(alpha=0.15, beta=0.9)
-
-# NEW (v4.0)
-layer = DDKFLayer(c_smoothing=0.15, c_smart_min=0.9)
-```
-
-**Option 2: Use backward compatibility helper**
-```python
-from ddkf import create_ddkf_with_old_params
-
-# Still uses old parameter names
-layer = create_ddkf_with_old_params(alpha=0.15, beta=0.9)
-```
-
-### Algorithm Changes
-
-v4.0 corrects the kernel application to match the MATLAB reference implementation:
-- **v3.x:** Applied kernels to entire signal, then windowed (incorrect)
-- **v4.0:** Applies kernels window-by-window (correct)
-
-Results will differ from v3.x due to this correction. The new implementation matches the published MATLAB code exactly.
-
 ## Key Features
 
 - **Window-by-window processing**: Kernels applied correctly within each window
@@ -287,6 +251,40 @@ class DDKFClassifier(nn.Module):
 model = DDKFClassifier(num_classes=10)
 optimizer = torch.optim.Adam(model.parameters())
 # ... training loop ...
+```
+### Custom Kernels
+
+You can provide your own kernel functions:
+```python
+import torch
+from ddkf import DDKFLayer
+
+# Define custom kernel
+def my_custom_kernel(x, scale=2.0, power=3):
+    """Custom kernel function."""
+    return (x * scale) ** power
+
+# Use with DDKF
+layer = DDKFLayer(
+    kernel_names=[my_custom_kernel, 'gaussian'],  # Mix custom + builtin
+    kernel_params=[
+        {'scale': 1.5, 'power': 2},  # params for custom kernel
+        {'center': 0.5, 'sigma': 0.8}  # params for gaussian
+    ],
+    gamma=[0.6, 0.4]
+)
+
+# Or use lambda functions
+layer = DDKFLayer(
+    kernel_names=[
+        lambda x, scale=1.0: torch.exp(-x * scale),
+        'polynomial'
+    ],
+    kernel_params=[
+        {'scale': 2.0},
+        {'degree': 3, 'offset': 1.0}
+    ]
+)
 ```
 
 ## Reference
