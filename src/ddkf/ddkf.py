@@ -315,8 +315,8 @@ class DDKFLayer(nn.Module):
             result[:, i, :] = torch.minimum(x, combined)
             
             # Phase selection: element-wise
-            use_x_phase = (result[:, i, :] == x)
-            result_phase[:, i, :] = torch.where(use_x_phase, Mphase[:, i, :], M1phase[:, i, :])
+            use_s1_phase = (M[:, i, :] < combined)
+            result_phase[:, i, :] = torch.where(use_s1_phase, Mphase[:, i, :], M1phase[:, i, :])
         
         # Beta thresholding (c_smoothing in MATLAB)
         flat = result.view(batch_size, -1)
