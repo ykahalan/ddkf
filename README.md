@@ -23,7 +23,7 @@ python3 -m pip install ddkf[all]
 
 ## Full example (runnable)
 
-The following example demonstrates DDKF with multiple kernels for time-frequency decomposition and denoising. Copy it into a file (e.g. `run_example.py`) or run interactively.
+The following example from the examples folder demonstrates DDKF with multiple kernels for time-frequency decomposition and denoising. Copy it into a file (e.g. `run_example.py`) or run interactively.
 
 ```python
 import torch
