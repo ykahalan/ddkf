@@ -1,6 +1,6 @@
-"""DDKF - Dual Dynamic Kernel Filtering (PyTorch-only with cubic interpolation)
+"""DDKF - Dual Dynamic Kernel Filtering (Corrected to match MATLAB)
 
-Learnable parameters (alpha, beta, gamma) with backpropagatable cubic interpolation.
+Fixed implementation matching the MATLAB reference code exactly.
 """
 import torch
 import torch.nn as nn
@@ -108,22 +108,28 @@ class Kernels:
 
 
 # =============================================================================
-# PyTorch DDKF (Learnable with Interpolation)
+# PyTorch DDKF (Corrected to match MATLAB)
 # =============================================================================
 
 class DDKFLayer(nn.Module):
     """Learnable DDKF layer for PyTorch with cubic interpolation.
     
-    Matches TwoDKF behavior with backpropagatable operations.
+    CORRECTED to match MATLAB reference implementation exactly.
+    
+    Key fixes:
+    - Kernel applied ONLY within window (not globally)
+    - Correct parameter naming (c_smart_min, c_smoothing)
+    - Proper phase handling
+    - Correct inverse transform weighting
     
     Parameters
     ----------
     kernel_names : list of str, optional
         Kernel names. Default: ['polynomial', 'gaussian'] (hybrid)
-    alpha : float, default=0.15
-        Initial alpha (learnable)
-    beta : float, default=0.9
-        Initial beta (learnable)
+    c_smart_min : float, default=0.9
+        Smart minimum threshold (alpha threshold in original code)
+    c_smoothing : float, default=0.12
+        Beta thresholding parameter
     gamma : list of float, optional
         Initial kernel weights. Default: [0.5, 0.5] for hybrid
     interp_factor : float, default=0.25
@@ -134,31 +140,13 @@ class DDKFLayer(nn.Module):
         Step size
     kernel_params : list of dict, optional
         Parameters for each kernel
-    
-    Examples
-    --------
-    >>> # Hybrid kernel (matches TwoDKF default)
-    >>> layer = DDKFLayer(
-    ...     kernel_names=['polynomial', 'gaussian'],
-    ...     gamma=[0.5, 0.5],
-    ...     interp_factor=0.25
-    ... )
-    
-    >>> # Forward pass
-    >>> signal = torch.randn(16, 1000)
-    >>> tfr = layer(signal)
-    
-    >>> # Training
-    >>> loss = criterion(tfr, target)
-    >>> loss.backward()  # Gradients flow through interpolation!
-    >>> optimizer.step()
     """
     
     def __init__(
         self,
         kernel_names: Optional[List[str]] = None,
-        alpha: float = 0.15,
-        beta: float = 0.9,
+        c_smart_min: float = 0.9,
+        c_smoothing: float = 0.12,
         gamma: Optional[List[float]] = None,
         interp_factor: float = 0.25,
         window_size: int = 20,
@@ -167,7 +155,7 @@ class DDKFLayer(nn.Module):
     ):
         super().__init__()
         
-        # Default to hybrid kernel (polynomial + gaussian) like TwoDKF
+        # Default to hybrid kernel (polynomial + gaussian) like MATLAB
         if kernel_names is None:
             kernel_names = ['polynomial', 'gaussian']
         
@@ -176,7 +164,7 @@ class DDKFLayer(nn.Module):
         
         # Setup kernel parameters
         if kernel_params is None:
-            # Default parameters matching TwoDKF
+            # Default parameters matching MATLAB
             self.kernel_params = [
                 {'degree': 2, 'offset': 1.3},  # polynomial
                 {'center': 0.7, 'sigma': 1.0}   # gaussian
@@ -190,9 +178,9 @@ class DDKFLayer(nn.Module):
         self.window_size = window_size
         self.step_size = step_size
         
-        # Learnable parameters
-        self.alpha = nn.Parameter(torch.tensor(alpha))
-        self.beta = nn.Parameter(torch.tensor(beta))
+        # Learnable parameters (renamed to match MATLAB)
+        self.c_smart_min = nn.Parameter(torch.tensor(c_smart_min))
+        self.c_smoothing = nn.Parameter(torch.tensor(c_smoothing))
         
         # Default to equal weights (0.5, 0.5 for hybrid)
         if gamma is None:
@@ -209,11 +197,10 @@ class DDKFLayer(nn.Module):
         return cubic_interpolate_1d(signal, self.interp_factor)
     
     def _apply_kernels(self, signal: torch.Tensor) -> torch.Tensor:
-        """Apply kernel combination with learnable weights."""
-        # Make non-negative
-        if signal.min() < 0:
-            signal = signal - signal.min()
+        """Apply kernel combination with learnable weights.
         
+        NOTE: In MATLAB, this is applied PER WINDOW, not globally!
+        """
         # Combine kernels with learnable weights
         result = torch.zeros_like(signal)
         gamma = self.gamma
@@ -226,6 +213,8 @@ class DDKFLayer(nn.Module):
     
     def forward(self, signal: torch.Tensor) -> torch.Tensor:
         """Process signal through DDKF with interpolation.
+        
+        CORRECTED to match MATLAB: kernels applied window-by-window!
         
         Parameters
         ----------
@@ -249,27 +238,29 @@ class DDKFLayer(nn.Module):
         interpolated_signal = self._interpolate_signal(signal)
         n = interpolated_signal.shape[1]
         
-        # Step 2: Apply kernels
-        kernel_signal = torch.stack([
-            self._apply_kernels(interpolated_signal[b])
-            for b in range(batch_size)
-        ])
-        
         if n < self.window_size:
             raise ValueError(f"Interpolated signal ({n}) shorter than window_size ({self.window_size})")
         
         # Compute number of windows
         n_windows = (n - self.window_size) // self.step_size + 1
         
-        # First pass: kernel IN window
+        # First pass: kernel IN window, zeros elsewhere (MATCHES MATLAB!)
         M_list, Mphase_list = [], []
         for i in range(n_windows):
             start = i * self.step_size
-            before = torch.zeros(batch_size, start, device=signal.device)
-            window = kernel_signal[:, start:start + self.window_size]
-            after = torch.zeros(batch_size, n - start - self.window_size, device=signal.device)
-            sig_win = torch.cat([before, window, after], dim=1)
             
+            # Extract window data
+            window_data = interpolated_signal[:, start:start + self.window_size]
+            
+            # Apply kernels ONLY to window data (CORRECTED!)
+            values_in_window = self._apply_kernels(window_data)
+            
+            # Pad with zeros before and after
+            before = torch.zeros(batch_size, start, device=signal.device)
+            after = torch.zeros(batch_size, n - start - self.window_size, device=signal.device)
+            sig_win = torch.cat([before, values_in_window, after], dim=1)
+            
+            # Compute FFT
             L = torch.fft.fft(sig_win)
             M_list.append(torch.abs(L))
             Mphase_list.append(torch.angle(L))
@@ -277,15 +268,29 @@ class DDKFLayer(nn.Module):
         M = torch.stack(M_list, dim=1)  # (batch, windows, freqs)
         Mphase = torch.stack(Mphase_list, dim=1)
         
-        # Second pass: kernel ZEROED in window
+        # Second pass: kernel ZEROED in window, kernel elsewhere (MATCHES MATLAB!)
         M1_list, M1phase_list = [], []
         for i in range(n_windows):
             start = i * self.step_size
-            before = kernel_signal[:, :start] if start > 0 else torch.zeros(batch_size, 0, device=signal.device)
-            window_zeros = torch.zeros(batch_size, self.window_size, device=signal.device)
-            after = kernel_signal[:, start + self.window_size:]
-            sig_win = torch.cat([before, window_zeros, after], dim=1)
             
+            # Apply kernels to before and after regions
+            if start > 0:
+                values_before = self._apply_kernels(interpolated_signal[:, :start])
+            else:
+                values_before = torch.zeros(batch_size, 0, device=signal.device)
+            
+            # Zeros in window
+            values_in_window = torch.zeros(batch_size, self.window_size, device=signal.device)
+            
+            # After window
+            if start + self.window_size < n:
+                values_after = self._apply_kernels(interpolated_signal[:, start + self.window_size:])
+            else:
+                values_after = torch.zeros(batch_size, 0, device=signal.device)
+            
+            sig_win = torch.cat([values_before, values_in_window, values_after], dim=1)
+            
+            # Compute FFT
             L = torch.fft.fft(sig_win)
             M1_list.append(torch.abs(L))
             M1phase_list.append(torch.angle(L))
@@ -293,60 +298,77 @@ class DDKFLayer(nn.Module):
         M1 = torch.stack(M1_list, dim=1)  # (batch, windows, freqs)
         M1phase = torch.stack(M1phase_list, dim=1)
         
-        # Smart minimum operation
+        # Smart minimum operation (CORRECTED: per-window threshold!)
         result = torch.zeros_like(M)
         result_phase = torch.zeros_like(Mphase)
         
         for i in range(n_windows):
-            x = M[:, i, :]
+            x = M[:, i, :]  # (batch, freqs)
             y = M1[:, i, :]
             
-            # Alpha threshold (learnable!)
-            x_max = x.max(dim=1, keepdim=True)[0]
-            strong_mask = x > (x_max * self.alpha)
+            # Threshold computed PER WINDOW (CORRECTED!)
+            x_max = x.max(dim=1, keepdim=True)[0]  # (batch, 1)
+            strong_mask = x > (x_max * self.c_smart_min)
             
+            # Smart minimum: min(x, y*x*mask)
             combined = y * x * strong_mask.float()
             result[:, i, :] = torch.minimum(x, combined)
             
-            # Phase selection
+            # Phase selection: element-wise
             use_x_phase = (result[:, i, :] == x)
             result_phase[:, i, :] = torch.where(use_x_phase, Mphase[:, i, :], M1phase[:, i, :])
         
-        # Beta thresholding (learnable!)
+        # Beta thresholding (c_smoothing in MATLAB)
         flat = result.view(batch_size, -1)
-        threshold = self.beta * flat.max(dim=1, keepdim=True)[0]
+        threshold = self.c_smoothing * flat.max(dim=1, keepdim=True)[0]
         threshold = threshold.view(batch_size, 1, 1)
         result = result * (result > threshold).float()
         
+        # Store phase for inverse transform
+        self._last_phase = result_phase
+        
         return result.squeeze(0) if squeeze else result
     
-    def inverse_transform(self, tfr: torch.Tensor, tfr_phase: torch.Tensor, 
-                         correction_factor: Optional[float] = None) -> torch.Tensor:
-        """Reconstruct signal from TFR (backpropagatable)."""
+    def inverse_transform(self, tfr: torch.Tensor, 
+                         tfr_phase: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Reconstruct signal from TFR (backpropagatable).
+        
+        CORRECTED: Uses c_smart_min (0.9) as correction factor to match MATLAB.
+        """
         if tfr.dim() == 2:
             tfr = tfr.unsqueeze(0)
-            tfr_phase = tfr_phase.unsqueeze(0)
             squeeze = True
         else:
             squeeze = False
         
+        if tfr_phase is None:
+            if not hasattr(self, '_last_phase'):
+                raise ValueError("No phase information available. Run forward() first or provide tfr_phase.")
+            tfr_phase = self._last_phase
+            if squeeze:
+                tfr_phase = tfr_phase.unsqueeze(0)
+        elif tfr_phase.dim() == 2:
+            tfr_phase = tfr_phase.unsqueeze(0)
+        
         batch_size, n_windows, _ = tfr.shape
         
+        # Reconstruct each window
         recovered = []
         for b in range(batch_size):
             windows_recovered = []
             for i in range(n_windows):
+                # Complex spectrum
                 complex_spec = tfr[b, i] * torch.exp(1j * tfr_phase[b, i])
+                # IFFT
                 time_signal = torch.fft.ifft(complex_spec)
+                # Sum magnitudes (matches MATLAB: sum(recov,2))
                 windows_recovered.append(torch.sum(torch.abs(time_signal)))
             recovered.append(torch.stack(windows_recovered))
         
         result = torch.stack(recovered)
         
-        if correction_factor is None:
-            correction_factor = self.alpha.item()
-        
-        result = correction_factor * result
+        # Apply correction factor: c_smart_min (0.9) to match MATLAB
+        result = self.c_smart_min * result
         
         return result.squeeze(0) if squeeze else result
 
@@ -362,3 +384,26 @@ class DDKFFeatureExtractor(nn.Module):
     def forward(self, x):
         tfr = self.ddkf(x)
         return tfr.view(tfr.size(0), -1) if self.flatten else tfr
+
+
+# =============================================================================
+# Backward Compatibility Aliases
+# =============================================================================
+
+def create_ddkf_with_old_params(alpha=0.15, beta=0.9, **kwargs):
+    """Create DDKF with old parameter names for backward compatibility.
+    
+    Old naming:
+    - alpha: beta threshold (should be c_smoothing)
+    - beta: alpha threshold (should be c_smart_min)
+    
+    Parameters
+    ----------
+    alpha : float
+        Beta threshold (c_smoothing in MATLAB)
+    beta : float
+        Alpha threshold (c_smart_min in MATLAB)
+    **kwargs
+        Other DDKFLayer parameters
+    """
+    return DDKFLayer(c_smoothing=alpha, c_smart_min=beta, **kwargs)
