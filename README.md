@@ -67,7 +67,7 @@ from ddkf import DDKFLayer
 layer = DDKFLayer(
     kernel_names=['polynomial', 'gaussian', 'polynomial'],
     gamma=[0.5, 0.3, 0.2],        # Initial weights (learnable)
-    alpha=0.12,             # Initial alpha threshold (learnable)
+    alpha=0.15,             # Initial alpha threshold (learnable)
     beta=0.9,              # Initial beta threshold (learnable)
     window_size=20,
     interp_factor=0.25            # Backpropagatable cubic interpolation
@@ -108,7 +108,7 @@ print(f"Learned beta: {layer.beta.item():.4f}")
 DDKF(
     kernel="gaussian",           # Single kernel or list of kernels
     gamma=None,                  # Kernel weights (auto-normalized to sum=1)
-    alpha=0.12,            # Alpha threshold (smoothing coefficient)
+    alpha=0.15,            # Alpha threshold (smoothing coefficient)
     beta=0.9,             # Beta threshold (smart minimum)
     window_size=20,              # Sliding window size
     step_size=4,                 # Step between windows
@@ -140,7 +140,7 @@ denoised = denoise(
 DDKFLayer(
     kernel_names=['polynomial', 'gaussian'],
     gamma=[0.5, 0.5],
-    alpha=0.12,            # Alpha threshold
+    alpha=0.15,            # Alpha threshold
     beta=0.9,             # Beta threshold
     window_size=20,
     step_size=4,
@@ -164,7 +164,7 @@ recovered = layer.inverse_transform(tfr, tfr_phase)
 
 ## Parameter Descriptions
 
-### alpha (default: 0.12)
+### alpha (default: 0.15)
 Alpha threshold for final smoothing. Suppresses weak frequency components in the final time-frequency representation. Higher values result in more aggressive smoothing.
 
 ### beta (default: 0.9)
@@ -236,7 +236,7 @@ class DDKFClassifier(nn.Module):
         super().__init__()
         self.ddkf = DDKFLayer(
             kernel_names=['polynomial', 'gaussian'],
-            alpha=0.12,
+            alpha=0.15,
             beta=0.9
         )
         self.classifier = nn.Sequential(
