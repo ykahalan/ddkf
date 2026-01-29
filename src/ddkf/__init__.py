@@ -17,8 +17,8 @@ Quick Start
 ...     kernel_names=['polynomial', 'gaussian'],
 ...     gamma=[0.5, 0.5],  # 50% poly, 50% gaussian
 ...     interp_factor=0.25,  # 4x upsampling
-...     alpha=0.12   # Beta threshold (MATLAB default)
-...     beta=0.9,   # Smart minimum threshold (MATLAB default)
+...     alpha=0.12   # Beta threshold (paper default)
+...     beta=0.9,   # Smart minimum threshold (paper default)
 ... )
 >>> 
 >>> signal = torch.randn(16, 1000)
@@ -43,7 +43,7 @@ Training (All Parameters Learnable)
 ...     loss.backward()  # Gradients flow through interpolation!
 ...     optimizer.step()
 
-Parameter Names (CORRECTED to match MATLAB)
+Parameter Names (CORRECTED to match paper)
 --------------------------------------------
 - **alpha** (default=0.12): Beta threshold for final smoothing
   - Suppresses weak frequency components in final TFR
