@@ -11,8 +11,8 @@ if __name__ == "__main__":
     
     # Initialize
     step_size = 4
-    c_smoothing = 0.12
-    c_smart_min = 0.9
+    alpha = 0.12
+    beta = 0.9
     window_size = 20
     Fs = 100
     t = np.arange(0, 5, 1/Fs)
@@ -32,9 +32,9 @@ if __name__ == "__main__":
         gamma=[0.5, 0.5],
         window_size=window_size,
         step_size=step_size,
-        c_smart_min=c_smart_min,
         c_smoothing=c_smoothing,
-        interp_factor=0.25  # NEW: Cubic interpolation!
+        beta=beta,
+        interp_factor=0.25
     )
     
     # Forward pass
