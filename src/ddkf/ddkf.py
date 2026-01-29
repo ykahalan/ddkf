@@ -1,6 +1,6 @@
-"""DDKF - Dual Dynamic Kernel Filtering (Corrected to match MATLAB)
+"""DDKF - Dual Dynamic Kernel Filtering (Corrected to match paper)
 
-Fixed implementation matching the MATLAB reference code exactly.
+Fixed implementation matching the paper reference code exactly.
 """
 import torch
 import torch.nn as nn
@@ -113,17 +113,17 @@ class Kernels:
 
 
 # =============================================================================
-# PyTorch DDKF (Corrected to match MATLAB)
+# PyTorch DDKF (Corrected to match paper)
 # =============================================================================
 
 class DDKFLayer(nn.Module):
     """Learnable DDKF layer for PyTorch with cubic interpolation.
     
-    CORRECTED to match MATLAB reference implementation exactly.
+    CORRECTED to match paper reference implementation exactly.
     
     Key fixes:
     - Kernel applied ONLY within window (not globally)
-    - Correct parameter naming (c_smart_min, c_smoothing)
+    - Correct parameter naming (alpha, beta)
     - Proper phase handling
     - Correct inverse transform weighting
     
@@ -134,10 +134,10 @@ class DDKFLayer(nn.Module):
         Custom kernels should accept (x, **params) and return torch.Tensor.
         Default: ['polynomial', 'gaussian'] (hybrid)
         Example: [my_custom_kernel, 'gaussian'] or ['polynomial', lambda x, scale=1.0: x * scale]
-    c_smart_min : float, default=0.9
-        Smart minimum threshold (alpha threshold in original code)
-    c_smoothing : float, default=0.12
-        Beta thresholding parameter
+    alpha : float, default=0.12
+        Local thresholding parameter
+    beta : float, default=0.9
+        Smart minimum threshold 
     gamma : list of float, optional
         Initial kernel weights. Default: [0.5, 0.5] for hybrid
     interp_factor : float, default=0.25
@@ -153,8 +153,8 @@ class DDKFLayer(nn.Module):
     def __init__(
         self,
         kernel_names: Optional[List[str]] = None,
-        c_smart_min: float = 0.9,
-        c_smoothing: float = 0.12,
+        alpha: float = 0.12,
+        beta: float = 0.9,
         gamma: Optional[List[float]] = None,
         interp_factor: float = 0.25,
         window_size: int = 20,
@@ -163,7 +163,7 @@ class DDKFLayer(nn.Module):
     ):
         super().__init__()
         
-        # Default to hybrid kernel (polynomial + gaussian) like MATLAB
+        # Default to hybrid kernel (polynomial + gaussian) like paper
         if kernel_names is None:
             kernel_names = ['polynomial', 'gaussian']
         
@@ -172,7 +172,7 @@ class DDKFLayer(nn.Module):
         
         # Setup kernel parameters
         if kernel_params is None:
-            # Default parameters matching MATLAB
+            # Default parameters matching paper
             self.kernel_params = [
                 {'degree': 2, 'offset': 1.3},  # polynomial
                 {'center': 0.7, 'sigma': 1.0}   # gaussian
@@ -186,9 +186,9 @@ class DDKFLayer(nn.Module):
         self.window_size = window_size
         self.step_size = step_size
         
-        # Learnable parameters (renamed to match MATLAB)
-        self.c_smart_min = nn.Parameter(torch.tensor(c_smart_min))
-        self.c_smoothing = nn.Parameter(torch.tensor(c_smoothing))
+        # Learnable parameters (renamed to match paper)
+        self.beta = nn.Parameter(torch.tensor(beta))
+        self.alpha = nn.Parameter(torch.tensor(alpha))
         
         # Default to equal weights (0.5, 0.5 for hybrid)
         if gamma is None:
@@ -207,7 +207,7 @@ class DDKFLayer(nn.Module):
     def _apply_kernels(self, signal: torch.Tensor) -> torch.Tensor:
         """Apply kernel combination with learnable weights.
         
-        NOTE: In MATLAB, this is applied PER WINDOW, not globally!
+        NOTE: In paper, this is applied PER WINDOW, not globally!
         """
         # Combine kernels with learnable weights
         result = torch.zeros_like(signal)
@@ -222,7 +222,7 @@ class DDKFLayer(nn.Module):
     def forward(self, signal: torch.Tensor) -> torch.Tensor:
         """Process signal through DDKF with interpolation.
         
-        CORRECTED to match MATLAB: kernels applied window-by-window!
+        CORRECTED to match paper: kernels applied window-by-window!
         
         Parameters
         ----------
@@ -252,7 +252,7 @@ class DDKFLayer(nn.Module):
         # Compute number of windows
         n_windows = (n - self.window_size) // self.step_size + 1
         
-        # First pass: kernel IN window, zeros elsewhere (MATCHES MATLAB!)
+        # First pass: kernel IN window, zeros elsewhere (MATCHES paper!)
         M_list, Mphase_list = [], []
         for i in range(n_windows):
             start = i * self.step_size
@@ -276,7 +276,7 @@ class DDKFLayer(nn.Module):
         M = torch.stack(M_list, dim=1)  # (batch, windows, freqs)
         Mphase = torch.stack(Mphase_list, dim=1)
         
-        # Second pass: kernel ZEROED in window, kernel elsewhere (MATCHES MATLAB!)
+        # Second pass: kernel ZEROED in window, kernel elsewhere (MATCHES paper!)
         M1_list, M1phase_list = [], []
         for i in range(n_windows):
             start = i * self.step_size
@@ -316,7 +316,7 @@ class DDKFLayer(nn.Module):
             
             # Threshold computed PER WINDOW (CORRECTED!)
             x_max = x.max(dim=1, keepdim=True)[0]  # (batch, 1)
-            strong_mask = x > (x_max * self.c_smart_min)
+            strong_mask = x > (x_max * self.beta)
             
             # Smart minimum: min(x, y*x*mask)
             combined = y * x * strong_mask.float()
@@ -326,9 +326,9 @@ class DDKFLayer(nn.Module):
             use_s1_phase = (M[:, i, :] < combined)
             result_phase[:, i, :] = torch.where(use_s1_phase, Mphase[:, i, :], M1phase[:, i, :])
         
-        # Beta thresholding (c_smoothing in MATLAB)
+        # Local thresholding (α in paper equation 4)
         flat = result.view(batch_size, -1)
-        threshold = self.c_smoothing * flat.max(dim=1, keepdim=True)[0]
+        threshold = self.alpha * flat.max(dim=1, keepdim=True)[0]
         threshold = threshold.view(batch_size, 1, 1)
         result = result * (result > threshold).float()
         
@@ -341,7 +341,7 @@ class DDKFLayer(nn.Module):
                          tfr_phase: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Reconstruct signal from TFR (backpropagatable).
         
-        CORRECTED: Uses c_smart_min (0.9) as correction factor to match MATLAB.
+        CORRECTED: Uses beta (0.9) as correction factor to match paper.
         """
         if tfr.dim() == 2:
             tfr = tfr.unsqueeze(0)
@@ -375,8 +375,8 @@ class DDKFLayer(nn.Module):
         
         result = torch.stack(recovered)
         
-        # Apply correction factor: c_smart_min (0.9) to match MATLAB
-        result = self.c_smart_min * result
+        # Apply correction factor: beta (0.9) to match paper
+        result = self.beta * result
         
         return result.squeeze(0) if squeeze else result
 
@@ -392,26 +392,3 @@ class DDKFFeatureExtractor(nn.Module):
     def forward(self, x):
         tfr = self.ddkf(x)
         return tfr.view(tfr.size(0), -1) if self.flatten else tfr
-
-
-# =============================================================================
-# Backward Compatibility Aliases
-# =============================================================================
-
-def create_ddkf_with_old_params(alpha=0.15, beta=0.9, **kwargs):
-    """Create DDKF with old parameter names for backward compatibility.
-    
-    Old naming:
-    - alpha: beta threshold (should be c_smoothing)
-    - beta: alpha threshold (should be c_smart_min)
-    
-    Parameters
-    ----------
-    alpha : float
-        Beta threshold (c_smoothing in MATLAB)
-    beta : float
-        Alpha threshold (c_smart_min in MATLAB)
-    **kwargs
-        Other DDKFLayer parameters
-    """
-    return DDKFLayer(c_smoothing=alpha, c_smart_min=beta, **kwargs)
