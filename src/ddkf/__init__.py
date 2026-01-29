@@ -56,22 +56,6 @@ Parameter Names (Following Paper Convention)
   - Higher = more selective (only strongest frequencies)
 
 - **gamma**: Kernel mixing weights (learnable, auto-normalized)
-
-Features
---------
-- **Cubic Interpolation**: Backpropagatable via torch.nn.functional.grid_sample
-- **Multiple Kernels**: Combine any number of polynomial/gaussian kernels
-- **Learnable Weights**: c_smart_min, c_smoothing, and gamma all support backpropagation
-- **No scipy**: Pure PyTorch implementation
-
-Algorithm Overview
-------------------
-1. **Interpolate** signal using cubic splines (4x upsampling by default)
-2. **Sliding Window** with kernel application:
-   - First pass: Apply kernel WITHIN window, zeros outside → FFT → M
-   - Second pass: Apply kernel OUTSIDE window, zeros inside → FFT → M1
-3. **Alpha Threshold**: Suppress result where result < alpha * max(result)
-4. **Smart Minimum**: result = min(M, M1 * M * mask) where mask = (M > beta * max(M))
 """
 
 from .ddkf import (
