@@ -11,8 +11,8 @@ if __name__ == "__main__":
     
     # Initialize
     step_size = 4
-    alpha = 0.12
-    beta = 0.9
+    alpha = 0.001
+    beta = 0.03
     window_size = 20
     Fs = 100
     t = np.arange(0, 5, 1/Fs)
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         step_size=step_size,
         alpha=alpha,
         beta=beta,
-        interp_factor=0.25
+        interp_factor=0.125
     )
     
     # Forward pass
