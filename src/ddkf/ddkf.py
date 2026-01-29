@@ -94,7 +94,31 @@ class Kernels:
     def gaussian(x: torch.Tensor, center: float = 0.7, sigma: float = 1.0) -> torch.Tensor:
         """Gaussian kernel: exp(-0.5 * ((x - center) / sigma)^2)"""
         return torch.exp(-0.5 * ((x - center) / sigma) ** 2)
+        
+    @staticmethod
+    def matern32(x: torch.Tensor, offset: float = 1.7) -> torch.Tensor:
+        """Matern 3/2 kernel: (1 + sqrt(3)(x + offset)) * exp(-sqrt(3)(x + offset))"""
+        sqrt3 = torch.sqrt(torch.tensor(3.0, device=x.device, dtype=x.dtype))
+        shifted_x = x + offset
+        return (1 + sqrt3 * shifted_x) * torch.exp(-sqrt3 * shifted_x)
     
+    @staticmethod
+    def matern52(x: torch.Tensor, offset: float = 1.7) -> torch.Tensor:
+        """Matern 5/2 kernel: (1 + sqrt(5)(x + offset) + (5/3)(x + offset)²) * exp(-sqrt(5)(x + offset))"""
+        sqrt5 = torch.sqrt(torch.tensor(5.0, device=x.device, dtype=x.dtype))
+        shifted_x = x + offset
+        return (1 + sqrt5 * shifted_x + (5/3) * (shifted_x ** 2)) * torch.exp(-sqrt5 * shifted_x)
+    
+    @staticmethod
+    def rational(x: torch.Tensor, scale: float = 1/3, power: int = 3) -> torch.Tensor:
+        """Rational quadratic kernel: (1 + scale * x)^(-power)"""
+        return (1 + scale * x) ** (-power)
+    
+    @staticmethod
+    def gamma_rational(x: torch.Tensor, scale: float = 1/3, offset: float = 1.7, power: int = 3) -> torch.Tensor:
+        """Gamma rational quadratic kernel: (1 + scale * (x + offset)²)^(-power)"""
+        return (1 + scale * ((x + offset) ** 2)) ** (-power)    
+        
     @staticmethod
     def get(name):
         """Get kernel by name or return callable directly."""
@@ -106,7 +130,12 @@ class Kernels:
         kernels = {
             'polynomial': Kernels.polynomial,
             'gaussian': Kernels.gaussian,
+            'matern32': Kernels.matern32,
+            'matern52': Kernels.matern52,
+            'rational': Kernels.rational,
+            'gamma_rational': Kernels.gamma_rational,
         }
+        
         if name not in kernels:
             raise ValueError(f"Unknown kernel: {name}. Available: {list(kernels.keys())}")
         return kernels[name]
