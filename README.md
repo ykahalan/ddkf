@@ -179,6 +179,14 @@ Kernel mixing weights. Automatically normalized to sum to 1. For a hybrid kernel
   - Default params: `degree=2, offset=1.3`
 - `"gaussian"` - Gaussian kernel: exp(-0.5 * ((x - center) / sigma)^2)
   - Default params: `center=0.7, sigma=1.0`
+- `"matern32"` - Matérn 3/2 kernel: (1 + √3(x + offset)) * exp(-√3(x + offset))
+  - Default params: offset=1.7
+- `"matern52"` - Matérn 5/2 kernel: (1 + √5(x + offset) + (5/3)(x + offset)²) * exp(-√5(x + offset))
+  - Default params: offset=1.7
+- `"rational"` - Rational quadratic kernel: (1 + scale * x)^(-power)
+  - Default params: scale=1/3, power=3
+- `"gamma_rational"` - Gamma rational quadratic kernel: (1 + scale * (x + offset)²)^(-power)
+  - Default params: scale=1/3, offset=1.7, power=3
 
 **Custom kernels:** You can also pass your own callable functions.
 ```
