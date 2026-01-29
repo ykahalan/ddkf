@@ -25,6 +25,16 @@ python3 -m pip install ddkf[torch]
 python3 -m pip install ddkf[all]
 ```
 
+## ⚠️ Important: Use the Polynomial Kernel
+
+**The polynomial kernel performs exceptionally well in any combination and should be included in your kernel configuration.** We don't set it as the default to allow users flexibility in configuring the polynomial parameters (degree and offset) for their specific use case.
+
+**Recommended configuration:**
+```python
+kernel_names=['polynomial', 'gaussian']
+gamma=[0.5, 0.5]
+```
+
 ## Examples
 
 The `examples/` folder contains complete working examples:
