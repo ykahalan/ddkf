@@ -171,11 +171,6 @@ Kernel mixing weights. Automatically normalized to sum to 1. For a hybrid kernel
   - Default params: `center=0.7, sigma=1.0`
 
 **Custom kernels:** You can also pass your own callable functions.
-
-**Hybrid kernel (recommended):** Combine polynomial and gaussian for best results:
-```python
-kernel_names=['polynomial', 'gaussian']
-gamma=[0.5, 0.5]
 ```
 
 ## Key Features
