@@ -5,7 +5,7 @@ Minimal package providing `DDKF` for time-frequency decomposition with arbitrary
 **New in v4.0:**
 -   **Corrected algorithm** - Window-by-window kernel application matching MATLAB reference
 -   **Arbitrary number of kernels** (not limited to 2)
--   **Learnable parameters** (c_smart_min, c_smoothing, gamma) via PyTorch
+-   **Learnable parameters** (alpha, beta, gamma) via PyTorch
 -   **Backpropagatable cubic interpolation** - Gradients flow through interpolation
 -   **No scipy dependency** (pure NumPy/PyTorch)
 
@@ -57,7 +57,7 @@ python3 DDKFvsDWT.py          # ML classification comparison (requires aeon, pyw
 
 ## PyTorch Example (Learnable Parameters)
 
-DDKF v4.0 supports learnable parameters via PyTorch. All parameters (c_smart_min, c_smoothing, gamma) can be optimized through backpropagation:
+DDKF v4.0 supports learnable parameters via PyTorch. All parameters (alpha, beta, gamma) can be optimized through backpropagation:
 
 ```python
 import torch
@@ -91,13 +91,13 @@ for epoch in range(100):
     
     # Parameters are updated
     if epoch % 20 == 0:
-        print(f"Epoch {epoch}: c_smart_min={layer.c_smart_min.item():.4f}, "
-              f"c_smoothing={layer.c_smoothing.item():.4f}")
+        print(f"Epoch {epoch}: alpha={layer.alpha.item():.4f}, "
+              f"beta={layer.beta.item():.4f}")
 
 # Check final learned parameters
 print(f"Learned gamma weights: {layer.gamma.detach().numpy()}")
-print(f"Learned alpha: {layer.c_smoothing.item():.4f}")
-print(f"Learned beta: {layer.c_smart_min.item():.4f}")
+print(f"Learned alpha: {layer.alpha.item():.4f}")
+print(f"Learned beta: {layer.beta.item():.4f}")
 ```
 
 ## API Overview
@@ -187,7 +187,7 @@ Kernel mixing weights. Automatically normalized to sum to 1. For a hybrid kernel
 
 - **Window-by-window processing**: Kernels applied correctly within each window
 - **Arbitrary kernels**: Use 1, 2, 3, or more kernels
-- **Learnable parameters**: Optimize c_smart_min, c_smoothing, gamma via PyTorch
+- **Learnable parameters**: Optimize alpha, beta, gamma via PyTorch
 - **Backpropagatable interpolation**: Gradients flow through cubic interpolation
 - **No scipy**: Pure NumPy/PyTorch implementation
 - **Flexible**: Works for denoising, TFR, feature extraction
