@@ -70,8 +70,8 @@ def extract_ddkf_features(
     time_series: np.ndarray,
     window_size: int = 20,
     step_size: int = 8,
-    c_smoothing: float = 0.15,      # ← RENAMED from alpha
-    c_smart_min: float = 0.85,      # ← RENAMED from beta
+    alpha: float = 0.15,
+    beta: float = 0.85,
     kernel: List[str] = None
 ) -> np.ndarray:
     """Extract DDKF-based features from a time series.
@@ -86,10 +86,10 @@ def extract_ddkf_features(
         DDKF window size
     step_size : int
         DDKF step size
-    c_smoothing : float
-        Beta threshold for final smoothing (was alpha)
-    c_smart_min : float
-        Alpha threshold for smart minimum (was beta)
+    alpha : float
+        Alpha threshold for final smoothing
+    beta : float
+        Beta threshold for smart minimum
     kernel : List[str]
         Kernel names to use
     
@@ -107,15 +107,15 @@ def extract_ddkf_features(
         gamma=[0.5, 0.5],  # Equal weights for hybrid
         window_size=window_size,
         step_size=step_size,
-        c_smoothing=c_smoothing,    # ← CORRECTED: was alpha
-        c_smart_min=c_smart_min,    # ← CORRECTED: was beta
+        alpha=alpha,
+        beta=beta,
         interp_factor=1.5
     )
 
     # Optional: Freeze parameters if you don't want them to be learnable
     # (Uncomment if needed)
-    # layer.c_smoothing.requires_grad = False  # ← CORRECTED: was alpha
-    # layer.c_smart_min.requires_grad = False  # ← CORRECTED: was beta
+    # layer.alpha.requires_grad = False
+    # layer.beta.requires_grad = False
     # layer._gamma.requires_grad = False
 
     try:
@@ -385,8 +385,8 @@ def run_experiment():
             print(f"Processing {i+1}/{len(X_train)}...", end='\r')
         features = extract_ddkf_features(
             ts,
-            c_smoothing=0.15,  # ← CORRECTED parameter name
-            c_smart_min=0.85   # ← CORRECTED parameter name
+            alpha=0.15,
+            beta=0.85
         )
         ddkf_features_train.append(features)
     print(f"Processed {len(X_train)} training samples" + " " * 20)
@@ -395,8 +395,8 @@ def run_experiment():
     for i, ts in enumerate(X_test):
         features = extract_ddkf_features(
             ts,
-            c_smoothing=0.15,  # ← CORRECTED parameter name
-            c_smart_min=0.85   # ← CORRECTED parameter name
+            alpha=0.15,
+            beta=0.85
         )
         ddkf_features_test.append(features)
     print(f"Processed {len(X_test)} test samples")
