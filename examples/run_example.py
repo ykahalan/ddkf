@@ -32,7 +32,7 @@ if __name__ == "__main__":
         gamma=[0.5, 0.5],
         window_size=window_size,
         step_size=step_size,
-        c_smoothing=c_smoothing,
+        alpha=alpha,
         beta=beta,
         interp_factor=0.25
     )
