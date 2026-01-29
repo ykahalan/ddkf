@@ -6,7 +6,6 @@ PyTorch implementation with:
 - Learnable parameters (alpha, beta, gamma)
 - Backpropagatable cubic interpolation
 - No scipy dependency
-- MATLAB-accurate behavior
 
 Quick Start
 -----------
