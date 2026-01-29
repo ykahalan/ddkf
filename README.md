@@ -4,17 +4,13 @@ Minimal package providing `DDKF` for time-frequency decomposition with arbitrary
 
 **New in v4.0:**
 -   **Corrected algorithm** - Window-by-window kernel application matching MATLAB reference
--   **Updated parameter names** - `c_smart_min` and `c_smoothing` (more descriptive)
 -   **Arbitrary number of kernels** (not limited to 2)
 -   **Learnable parameters** (c_smart_min, c_smoothing, gamma) via PyTorch
 -   **Backpropagatable cubic interpolation** - Gradients flow through interpolation
 -   **No scipy dependency** (pure NumPy/PyTorch)
 
 **Breaking Changes from v3.x:**
-- Parameter `alpha` renamed to `c_smoothing` (beta threshold)
-- Parameter `beta` renamed to `c_smart_min` (alpha threshold for smart minimum)
 - Algorithm corrected to apply kernels window-by-window (not globally)
-- Backward compatibility helper available: `create_ddkf_with_old_params()`
 
 ## Quick install
 
@@ -61,8 +57,8 @@ from ddkf import DDKFLayer
 layer = DDKFLayer(
     kernel_names=['polynomial', 'gaussian', 'polynomial'],
     gamma=[0.5, 0.3, 0.2],        # Initial weights (learnable)
-    c_smoothing=0.12,             # Initial beta threshold (learnable)
-    c_smart_min=0.9,              # Initial alpha threshold (learnable)
+    alpha=0.12,             # Initial alpha threshold (learnable)
+    beta=0.9,              # Initial beta threshold (learnable)
     window_size=20,
     interp_factor=0.25            # Backpropagatable cubic interpolation
 )
@@ -90,8 +86,8 @@ for epoch in range(100):
 
 # Check final learned parameters
 print(f"Learned gamma weights: {layer.gamma.detach().numpy()}")
-print(f"Learned c_smart_min: {layer.c_smart_min.item():.4f}")
-print(f"Learned c_smoothing: {layer.c_smoothing.item():.4f}")
+print(f"Learned alpha: {layer.c_smoothing.item():.4f}")
+print(f"Learned beta: {layer.c_smart_min.item():.4f}")
 ```
 
 ## API Overview
@@ -102,8 +98,8 @@ print(f"Learned c_smoothing: {layer.c_smoothing.item():.4f}")
 DDKF(
     kernel="gaussian",           # Single kernel or list of kernels
     gamma=None,                  # Kernel weights (auto-normalized to sum=1)
-    c_smoothing=0.12,            # Beta threshold (smoothing coefficient)
-    c_smart_min=0.9,             # Alpha threshold (smart minimum)
+    alpha=0.12,            # Alpha threshold (smoothing coefficient)
+    beta=0.9,             # Beta threshold (smart minimum)
     window_size=20,              # Sliding window size
     step_size=4,                 # Step between windows
     kernel_params=None           # Parameters for each kernel
@@ -123,8 +119,8 @@ denoised = denoise(
     kernel=["polynomial", "gaussian"],
     gamma=[0.6, 0.4],
     window_size=20,
-    c_smoothing=0.15,
-    c_smart_min=0.9
+    alpha=0.15,
+    beta=0.9
 )
 ```
 
@@ -134,8 +130,8 @@ denoised = denoise(
 DDKFLayer(
     kernel_names=['polynomial', 'gaussian'],
     gamma=[0.5, 0.5],
-    c_smoothing=0.12,            # Beta threshold
-    c_smart_min=0.9,             # Alpha threshold
+    alpha=0.12,            # Alpha threshold
+    beta=0.9,             # Beta threshold
     window_size=20,
     step_size=4,
     interp_factor=0.25           # Cubic interpolation factor
@@ -158,15 +154,11 @@ recovered = layer.inverse_transform(tfr, tfr_phase)
 
 ## Parameter Descriptions
 
-### c_smart_min (default: 0.9)
-Alpha threshold for the smart minimum operation. Controls which frequency components participate in the smart minimum calculation. Higher values (closer to 1.0) make the filter more selective, only including the strongest frequency components.
+### alpha (default: 0.12)
+Alpha threshold for final smoothing. Suppresses weak frequency components in the final time-frequency representation. Higher values result in more aggressive smoothing.
 
-**MATLAB equivalent:** `c_smart_min`
-
-### c_smoothing (default: 0.12)
-Beta threshold for final smoothing. Suppresses weak frequency components in the final time-frequency representation. Higher values result in more aggressive smoothing.
-
-**MATLAB equivalent:** `c_smoothing`
+### beta (default: 0.9)
+Beta threshold for the smart minimum operation. Controls which frequency components participate in the smart minimum calculation. Higher values (closer to 1.0) make the filter more selective, only including the strongest frequency components.
 
 ### gamma (default: equal weights)
 Kernel mixing weights. Automatically normalized to sum to 1. For a hybrid kernel with two components, `gamma=[0.5, 0.5]` gives equal weight to each kernel.
@@ -193,7 +185,6 @@ gamma=[0.5, 0.5]
 - **Learnable parameters**: Optimize c_smart_min, c_smoothing, gamma via PyTorch
 - **Backpropagatable interpolation**: Gradients flow through cubic interpolation
 - **No scipy**: Pure NumPy/PyTorch implementation
-- **MATLAB-accurate**: Matches reference implementation exactly
 - **Flexible**: Works for denoising, TFR, feature extraction
 
 ## Advanced Usage
@@ -210,8 +201,8 @@ import torch
 ddkf = DDKFLayer(
     kernel_names=['polynomial', 'gaussian'],
     gamma=[0.5, 0.5],
-    c_smoothing=0.15,
-    c_smart_min=0.85
+    alpha=0.15,
+    beta=0.85
 )
 
 # Extract features from time series
@@ -232,8 +223,8 @@ class DDKFClassifier(nn.Module):
         super().__init__()
         self.ddkf = DDKFLayer(
             kernel_names=['polynomial', 'gaussian'],
-            c_smoothing=0.12,
-            c_smart_min=0.9
+            alpha=0.12,
+            beta=0.9
         )
         self.classifier = nn.Sequential(
             nn.Flatten(),
