@@ -43,14 +43,16 @@ Training (All Parameters Learnable)
 ...     loss.backward()  # Gradients flow through interpolation!
 ...     optimizer.step()
 
-Parameter Names (CORRECTED to match paper)
---------------------------------------------
-- **alpha** (default=0.12): Beta threshold for final smoothing
+Parameter Names (Following Paper Convention)
+---------------------------------------------
+- **alpha** (default=0.12): Local threshold (alpha in paper equation 4)
   - Suppresses weak frequency components in final TFR
+  - Applied AFTER smart minimum operation
   - Higher = more aggressive smoothing
   
-- **beta** (default=0.9): Smart minimum threshold for alpha masking
+- **beta** (default=0.9): Global threshold (beta in paper equation 5)
   - Controls which frequency components participate in smart minimum
+  - Applied DURING smart minimum operation  
   - Higher = more selective (only strongest frequencies)
 
 - **gamma**: Kernel mixing weights (learnable, auto-normalized)
