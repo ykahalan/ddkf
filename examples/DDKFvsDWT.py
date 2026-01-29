@@ -27,39 +27,39 @@ try:
     import torch.nn as nn
     import torch.optim as optim
     from torch.utils.data import TensorDataset, DataLoader
-    print("✓ PyTorch available")
+    print("  PyTorch available")
 except ImportError:
-    print("✗ PyTorch not available. Install with: pip install torch")
+    print("  PyTorch not available. Install with: pip install torch")
     print("  Continuing with numpy-only implementation...")
     torch = None
 
 try:
     from aeon.datasets import load_classification
-    print("✓ Aeon available")
+    print("  Aeon available")
 except ImportError:
-    print("✗ Aeon not available. Install with: pip install aeon")
+    print("  Aeon not available. Install with: pip install aeon")
     print("  Will use synthetic data instead...")
     load_classification = None
 
 try:
     import pywt
-    print("✓ PyWavelets available")
+    print("  PyWavelets available")
 except ImportError:
-    print("✗ PyWavelets not available. Install with: pip install PyWavelets")
+    print("  PyWavelets not available. Install with: pip install PyWavelets")
     pywt = None
 
 try:
     from sklearn.preprocessing import LabelEncoder
     from sklearn.metrics import accuracy_score, classification_report
-    print("✓ Scikit-learn available")
+    print("  Scikit-learn available")
 except ImportError:
-    print("✗ Scikit-learn not available. Install with: pip install scikit-learn")
+    print("  Scikit-learn not available. Install with: pip install scikit-learn")
     raise
 
 # Import DDKF - UPDATED to use corrected implementation
 from ddkf import DDKFLayer
 
-print("✓ DDKF available (corrected implementation)")
+print("  DDKF available (corrected implementation)")
 
 
 # =============================================================================
@@ -351,7 +351,7 @@ def run_experiment():
                 X_train = X_train.squeeze()
                 X_test = X_test.squeeze()
             
-            print(f"✓ Loaded ECG200 dataset")
+            print(f"  Loaded ECG200 dataset")
             print(f"  Train: {X_train.shape}, Test: {X_test.shape}")
             
         except Exception as e:
@@ -560,7 +560,7 @@ def run_experiment():
     plt.suptitle('Feature Extraction Comparison (Corrected DDKF)', fontsize=14, fontweight='bold')
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.savefig('ml_features_comparison_corrected.png', dpi=150, bbox_inches='tight')
-    print("✓ Saved ml_features_comparison_corrected.png")
+    print("  Saved ml_features_comparison_corrected.png")
     
     # Plot training curves
     if history_ddkf is not None and history_dwt is not None:
@@ -598,7 +598,7 @@ def run_experiment():
         
         plt.tight_layout()
         plt.savefig('ml_training_results_corrected.png', dpi=150, bbox_inches='tight')
-        print("✓ Saved ml_training_results_corrected.png")
+        print("  Saved ml_training_results_corrected.png")
     
     # =============================================================================
     # Summary
@@ -618,10 +618,10 @@ def run_experiment():
     
     if final_test_acc_ddkf > final_test_acc_dwt:
         improvement = final_test_acc_ddkf - final_test_acc_dwt
-        print(f"\n✓ DDKF outperforms DWT by {improvement:.2f}%")
+        print(f"\n  DDKF outperforms DWT by {improvement:.2f}%")
     elif final_test_acc_dwt > final_test_acc_ddkf:
         improvement = final_test_acc_dwt - final_test_acc_ddkf
-        print(f"\n✓ DWT outperforms DDKF by {improvement:.2f}%")
+        print(f"\n  DWT outperforms DDKF by {improvement:.2f}%")
     else:
         print(f"\n= DDKF and DWT perform equally")
     
