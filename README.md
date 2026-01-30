@@ -15,14 +15,8 @@ Minimal package providing `DDKF` for time-frequency decomposition with arbitrary
 ## Quick install
 
 ```bash
-# Basic install (NumPy only)
+# Basic install
 python3 -m pip install ddkf
-
-# With PyTorch support (for learnable parameters)
-python3 -m pip install ddkf[torch]
-
-# With plotting
-python3 -m pip install ddkf[all]
 ```
 
 ## ⚠️ Important: Use the Polynomial Kernel
