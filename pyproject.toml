@@ -14,13 +14,8 @@ authors = [
 license = { text = "MIT" }
 requires-python = ">=3.8"
 dependencies = [
-    "numpy>=1.21",
+    "torch>=1.9", "matplotlib>=3.4"
 ]
-
-[project.optional-dependencies]
-torch = ["torch>=1.9"]
-plot = ["matplotlib>=3.4"]
-all = ["torch>=1.9", "matplotlib>=3.4"]
 
 [project.urls]
 Homepage = "https://github.com/ykahalan/ddkf"
