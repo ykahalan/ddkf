@@ -15,8 +15,6 @@ def cubic_interpolate_1d(signal: torch.Tensor, interp_factor: float = 0.25) -> t
     """
     Cubic spline interpolation for 1D signals (backpropagatable).
     
-    Uses Catmull-Rom spline which matches scipy's cubic interpolation behavior.
-    
     Parameters
     ----------
     signal : torch.Tensor
