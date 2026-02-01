@@ -7,7 +7,7 @@ Minimal package providing `DDKF` for time-frequency decomposition with arbitrary
 -   **Arbitrary number of kernels** (not limited to 2)
 -   **Learnable parameters** (alpha, beta, gamma) via PyTorch
 -   **Backpropagatable cubic interpolation** - Gradients flow through interpolation
--   **No scipy dependency** (pure NumPy/PyTorch)
+-   **No scipy dependency** (pure PyTorch)
 
 **Breaking Changes from v3.x:**
 - Algorithm corrected to apply kernels window-by-window (not globally)
