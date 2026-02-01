@@ -112,12 +112,6 @@ def extract_ddkf_features(
         interp_factor=1.5
     )
 
-    # Optional: Freeze parameters if you don't want them to be learnable
-    # (Uncomment if needed)
-    # layer.alpha.requires_grad = False
-    # layer.beta.requires_grad = False
-    # layer._gamma.requires_grad = False
-
     try:
         # Convert to torch tensor
         signal_torch = torch.from_numpy(time_series).float()
@@ -385,8 +379,8 @@ def run_experiment():
             print(f"Processing {i+1}/{len(X_train)}...", end='\r')
         features = extract_ddkf_features(
             ts,
-            alpha=0.15,
-            beta=0.85
+            alpha=0.001,
+            beta=0.03
         )
         ddkf_features_train.append(features)
     print(f"Processed {len(X_train)} training samples" + " " * 20)
@@ -395,8 +389,8 @@ def run_experiment():
     for i, ts in enumerate(X_test):
         features = extract_ddkf_features(
             ts,
-            alpha=0.15,
-            beta=0.85
+            alpha=0.001,
+            beta=0.03
         )
         ddkf_features_test.append(features)
     print(f"Processed {len(X_test)} test samples")
@@ -521,22 +515,23 @@ def run_experiment():
     idx = 0
     
     plt.subplot(3, 3, 1)
-    plt.plot(X_train[idx])
+    plt.plot(X_train[idx], 'r-', alpha=0.6, linewidth=0.8, label=f'Class {y_train[idx]}')
     plt.title(f'Example Time Series (Class {y_train[idx]})')
     plt.xlabel('Time')
-    plt.ylabel('Value')
+    plt.ylabel('Amplitude')
     plt.grid(True, alpha=0.3)
+    plt.legend()
     
     plt.subplot(3, 3, 2)
-    plt.imshow(X_train_ddkf[idx], aspect='auto', cmap='hot')
-    plt.colorbar()
+    plt.imshow(X_train_ddkf[idx], aspect='auto', cmap='viridis')
+    plt.colorbar(label='Magnitude')
     plt.title('DDKF Features (Corrected)')
     plt.xlabel('Frequency')
     plt.ylabel('Time Window')
     
     plt.subplot(3, 3, 3)
     plt.imshow(X_train_dwt[idx], aspect='auto', cmap='viridis')
-    plt.colorbar()
+    plt.colorbar(label='Magnitude')
     plt.title('DWT Features')
     plt.xlabel('Coefficient Index')
     plt.ylabel('Decomposition Level')
@@ -544,13 +539,15 @@ def run_experiment():
     # Plot 2-3: More examples
     for i, idx in enumerate([5, 10]):
         plt.subplot(3, 3, 4 + i*3)
-        plt.plot(X_train[idx])
+        plt.plot(X_train[idx], 'r-', alpha=0.6, linewidth=0.8, label=f'Class {y_train[idx]}')
         plt.title(f'Time Series (Class {y_train[idx]})')
         plt.xlabel('Time')
+        plt.ylabel('Amplitude')
         plt.grid(True, alpha=0.3)
+        plt.legend()
         
         plt.subplot(3, 3, 5 + i*3)
-        plt.imshow(X_train_ddkf[idx], aspect='auto', cmap='hot')
+        plt.imshow(X_train_ddkf[idx], aspect='auto', cmap='viridis')
         plt.title('DDKF Features')
         
         plt.subplot(3, 3, 6 + i*3)
