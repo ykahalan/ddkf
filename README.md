@@ -1,6 +1,6 @@
 # ddkf
 
-Minimal package providing `DDKF` for time-frequency decomposition with arbitrary kernels and learnable parameters. Available to install with pip as package `ddkf`.
+Minimal package providing `DDKF` for time-frequency decomposition with arbitrary kernels. Available to install with pip as package `ddkf`.
 
 **New in v4.0:**
 -   **Corrected algorithm** - Window-by-window kernel application matching MATLAB reference
