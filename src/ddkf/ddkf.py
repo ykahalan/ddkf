@@ -214,18 +214,13 @@ class DDKFLayer(nn.Module):
         self.step_size = step_size
         
         # Learnable parameters (renamed to match paper)
-        self.beta = nn.Parameter(torch.tensor(beta))
-        self.alpha = nn.Parameter(torch.tensor(alpha))
+        self.beta = beta
+        self.alpha = alpha
         
         # Default to equal weights (0.5, 0.5 for hybrid)
         if gamma is None:
             gamma = [1.0 / n_kernels] * n_kernels
-        self._gamma = nn.Parameter(torch.tensor(gamma))
-    
-    @property
-    def gamma(self):
-        """Normalized gamma weights (always sum to 1)."""
-        return torch.softmax(self._gamma, dim=0)
+        self._gamma = gamma
     
     def _interpolate_signal(self, signal: torch.Tensor) -> torch.Tensor:
         """Apply cubic interpolation (backpropagatable)."""
@@ -238,7 +233,8 @@ class DDKFLayer(nn.Module):
         """
         # Combine kernels with learnable weights
         result = torch.zeros_like(signal)
-        gamma = self.gamma
+        gamma_sum = sum(self._gamma)
+        gamma = [g / gamma_sum for g in self._gamma]
         
         for i, (kname, params) in enumerate(zip(self.kernel_names, self.kernel_params)):
             kernel_fn = Kernels.get(kname)
