@@ -89,7 +89,7 @@ class Kernels:
         return (x + offset) ** degree
     
     @staticmethod
-    def gaussian(x: torch.Tensor, center: float = 0.7, sigma: float = 1.0) -> torch.Tensor:
+    def gaussian(x: torch.Tensor, center: float = 13.7, sigma: float = 1.0) -> torch.Tensor:
         """Gaussian kernel: exp(-0.5 * ((x - center) / sigma)^2)"""
         return torch.exp(-0.5 * ((x - center) / sigma) ** 2)
         
