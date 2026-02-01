@@ -5,8 +5,6 @@ Minimal package providing `DDKF` for time-frequency decomposition with arbitrary
 **New in v4.0:**
 -   **Corrected algorithm** - Window-by-window kernel application matching MATLAB reference
 -   **Arbitrary number of kernels** (not limited to 2)
--   **Learnable parameters** (alpha, beta, gamma) via PyTorch
--   **Backpropagatable cubic interpolation** - Gradients flow through interpolation
 -   **No scipy dependency** (pure PyTorch)
 
 **Breaking Changes from v3.x:**
@@ -189,8 +187,6 @@ Kernel mixing weights. Automatically normalized to sum to 1. For a hybrid kernel
 
 - **Window-by-window processing**: Kernels applied correctly within each window
 - **Arbitrary kernels**: Use 1, 2, 3, or more kernels
-- **Learnable parameters**: Optimize alpha, beta, gamma via PyTorch
-- **Backpropagatable interpolation**: Gradients flow through cubic interpolation
 - **No scipy**: Pure NumPy/PyTorch implementation
 - **Flexible**: Works for denoising, TFR, feature extraction
 
