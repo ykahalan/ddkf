@@ -58,9 +58,9 @@ from ddkf import DDKFLayer
 # Create learnable DDKF layer
 layer = DDKFLayer(
     kernel_names=['polynomial', 'gaussian', 'polynomial'],
-    gamma=[0.5, 0.3, 0.2],        # Initial weights (learnable)
-    alpha=0.15,             # Initial alpha threshold (learnable)
-    beta=0.9,              # Initial beta threshold (learnable)
+    gamma=[0.5, 0.3, 0.2],        # Initial weights
+    alpha=0.15,             # Initial alpha threshold
+    beta=0.9,              # Initial beta threshold
     window_size=20,
     interp_factor=0.25            # Backpropagatable cubic interpolation
 )
