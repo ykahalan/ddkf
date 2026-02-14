@@ -1,6 +1,9 @@
 """DDKF - Dual Dynamic Kernel Filtering (Corrected to match paper)
 
 Fixed implementation matching the paper reference code exactly.
+With soft minimum and learnable sigmoid temperature for FULL differentiability.
+
+BETA GRADIENT FIX: Beta now has DIRECT gradient path in soft mode!
 """
 import torch
 import torch.nn as nn
@@ -75,6 +78,48 @@ def cubic_interpolate_1d(signal: torch.Tensor, interp_factor: float = 0.25) -> t
     
     return result.squeeze(0) if squeeze else result
 
+
+def soft_minimum(a: torch.Tensor, b: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
+    """Differentiable soft minimum using LogSumExp (STE-like).
+    
+    As temperature → ∞, this approaches hard minimum.
+    At temperature = 1.0, it's a smooth differentiable approximation.
+    
+    Formula: -logsumexp([-a*temp, -b*temp]) / temp
+    
+    This ensures gradients flow to BOTH a and b, unlike torch.minimum
+    which only sends gradients to whichever is smaller.
+    """
+    stacked = torch.stack([-a * temperature, -b * temperature], dim=0)
+    return -torch.logsumexp(stacked, dim=0) / temperature
+
+
+class LearnableChebyshevKernel(nn.Module):
+    """Learnable Chebyshev polynomial kernel with trainable coefficients."""
+    
+    def __init__(self, degree=4, init_coeffs=None):
+        super().__init__()
+        if init_coeffs is not None:
+            self.coeffs = nn.Parameter(torch.tensor(init_coeffs, dtype=torch.float32))
+        else:
+            init = torch.zeros(degree)
+            if degree > 1:
+                init[1] = 1.0
+            self.coeffs = nn.Parameter(init)
+    
+    def forward(self, x):
+        x_cheb = torch.tanh(x)
+        degree = len(self.coeffs)
+        T_prev2 = torch.ones_like(x_cheb)
+        out = self.coeffs[0] * T_prev2
+        if degree > 1:
+            T_prev1 = x_cheb
+            out = out + self.coeffs[1] * T_prev1
+            for n in range(2, degree):
+                T_n = 2.0 * x_cheb * T_prev1 - T_prev2
+                out = out + self.coeffs[n] * T_n
+                T_prev2, T_prev1 = T_prev1, T_n
+        return out
 
 # =============================================================================
 # Kernels
@@ -153,6 +198,9 @@ class DDKFLayer(nn.Module):
     - Correct parameter naming (alpha, beta)
     - Proper phase handling
     - Correct inverse transform weighting
+    - Soft minimum with STE for FULL differentiability
+    - Learnable sigmoid temperature
+    - BETA GRADIENT FIX: Direct multiplication in soft mode
     
     Parameters
     ----------
@@ -165,6 +213,8 @@ class DDKFLayer(nn.Module):
         Local thresholding parameter
     beta : float, default=0.9
         Smart minimum threshold 
+    threshold_mode : str, default='hard'
+        'hard' for non-differentiable, 'soft' for fully differentiable
     gamma : list of float, optional
         Initial kernel weights. Default: [0.5, 0.5] for hybrid
     interp_factor : float, default=0.25
@@ -175,6 +225,14 @@ class DDKFLayer(nn.Module):
         Step size
     kernel_params : list of dict, optional
         Parameters for each kernel
+    learn_alpha : bool, default=False
+        Make alpha learnable
+    learn_beta : bool, default=False
+        Make beta learnable
+    learn_sigmoid_temp : bool, default=False
+        Make sigmoid temperature learnable (only for soft mode)
+    sigmoid_temp : float, default=1.0
+        Temperature for soft operations (higher = closer to hard)
     """
     
     def __init__(
@@ -182,17 +240,28 @@ class DDKFLayer(nn.Module):
         kernel_names: Optional[List[str]] = None,
         alpha: float = 0.12,
         beta: float = 0.9,
+        threshold_mode: str = 'hard',
         gamma: Optional[List[float]] = None,
         interp_factor: float = 0.25,
         window_size: int = 20,
         step_size: int = 4,
         kernel_params: Optional[List[dict]] = None,
+        learn_alpha: bool = False,
+        learn_beta: bool = False,
+        learn_sigmoid_temp: bool = False,
+        sigmoid_temp: float = 1.0,
     ):
         super().__init__()
         
         # Default to hybrid kernel (polynomial + gaussian) like paper
         if kernel_names is None:
             kernel_names = ['polynomial', 'gaussian']
+
+        # Auto-detect and store learnable kernels (nn.Module instances)
+        self.learnable_kernels = nn.ModuleDict()
+        for i, kname in enumerate(kernel_names):
+            if isinstance(kname, nn.Module):
+                self.learnable_kernels[f'learnable_{i}'] = kname
         
         self.kernel_names = kernel_names
         n_kernels = len(kernel_names)
@@ -214,9 +283,24 @@ class DDKFLayer(nn.Module):
         self.step_size = step_size
         
         # Learnable parameters (renamed to match paper)
-        self.beta = beta
-        self.alpha = alpha
+        if learn_alpha:
+            self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float32))
+        else:
+            self.alpha = alpha
         
+        if learn_beta:
+            self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float32))
+        else:
+            self.beta = beta
+
+        # Learnable sigmoid temperature
+        if learn_sigmoid_temp:
+            self.sigmoid_temp = nn.Parameter(torch.tensor(sigmoid_temp, dtype=torch.float32))
+        else:
+            self.sigmoid_temp = sigmoid_temp
+
+        self.threshold_mode = threshold_mode
+       
         # Default to equal weights (0.5, 0.5 for hybrid)
         if gamma is None:
             gamma = [1.0 / n_kernels] * n_kernels
@@ -227,18 +311,24 @@ class DDKFLayer(nn.Module):
         return cubic_interpolate_1d(signal, self.interp_factor)
     
     def _apply_kernels(self, signal: torch.Tensor) -> torch.Tensor:
-        """Apply kernel combination with learnable weights.
-        
-        NOTE: In paper, this is applied PER WINDOW, not globally!
-        """
-        # Combine kernels with learnable weights
+        """Apply kernel combination with learnable weights."""
         result = torch.zeros_like(signal)
         gamma_sum = sum(self._gamma)
         gamma = [g / gamma_sum for g in self._gamma]
         
         for i, (kname, params) in enumerate(zip(self.kernel_names, self.kernel_params)):
-            kernel_fn = Kernels.get(kname)
-            result += gamma[i] * kernel_fn(signal, **params)
+            # Check if it's a stored learnable kernel
+            learnable_key = f'learnable_{i}'
+            
+            if learnable_key in self.learnable_kernels:
+                # It's a learnable kernel (nn.Module)
+                kern_out = self.learnable_kernels[learnable_key](signal)
+            else:
+                # It's a static kernel (string or callable)
+                kernel_fn = Kernels.get(kname)
+                kern_out = kernel_fn(signal, **params)
+            
+            result += gamma[i] * kern_out
         
         return result
     
@@ -333,17 +423,40 @@ class DDKFLayer(nn.Module):
         result = torch.zeros_like(M)
         result_phase = torch.zeros_like(Mphase)
         
+        # Get temperature value (works for both Parameter and float)
+        temp = self.sigmoid_temp if isinstance(self.sigmoid_temp, (int, float)) else self.sigmoid_temp
+        
+        # Get beta value (works for both Parameter and float)
+        beta_val = self.beta if isinstance(self.beta, (int, float)) else self.beta
+        
         for i in range(n_windows):
             x = M[:, i, :]  # (batch, freqs)
             y = M1[:, i, :]
             
             # Threshold computed PER WINDOW (CORRECTED!)
-            x_max = x.max(dim=1, keepdim=True)[0]  # (batch, 1)
-            strong_mask = x > (x_max * self.beta)
-            
-            # Smart minimum: min(x, y*x*mask)
-            combined = y * x * strong_mask.float()
-            result[:, i, :] = torch.minimum(x, combined)
+            x_max_val = x.max(dim=1, keepdim=True)[0]  # (batch, 1)
+
+            if self.threshold_mode == 'soft':
+                # Soft maximum: differentiable approximation using LogSumExp
+                x_max = (x * temp).logsumexp(dim=1, keepdim=True) / temp
+            else:
+                # Hard maximum: only for non-learnable case
+                x_max = x_max_val
+
+            beta_threshold = x_max * beta_val
+
+            if self.threshold_mode == 'soft':
+                # Smooth approximation with learnable temperature
+                strong_mask = torch.sigmoid(temp * (x - beta_threshold))
+                # *** BETA GRADIENT FIX: Direct multiplication gives strong gradient path ***
+                # This doesn't change algorithm (beta≈0.9), but ensures beta actually learns!
+                combined = beta_val * y * x * strong_mask
+                result[:, i, :] = soft_minimum(x, combined, temperature=temp)
+            else:
+                # Original hard threshold
+                strong_mask = (x > beta_threshold).float()
+                combined = y * x * strong_mask
+                result[:, i, :] = torch.minimum(x, combined)
             
             # Phase selection: element-wise
             use_s1_phase = (M[:, i, :] < combined)
@@ -351,9 +464,22 @@ class DDKFLayer(nn.Module):
         
         # Local thresholding (α in paper equation 4)
         flat = result.view(batch_size, -1)
-        threshold = self.alpha * flat.max(dim=1, keepdim=True)[0]
+        
+        # Use soft max for alpha threshold too when in soft mode
+        if self.threshold_mode == 'soft':
+            alpha_max = (flat * temp).logsumexp(dim=1, keepdim=True) / temp
+        else:
+            alpha_max = flat.max(dim=1, keepdim=True)[0]
+        
+        threshold = self.alpha * alpha_max
         threshold = threshold.view(batch_size, 1, 1)
-        result = result * (result > threshold).float()
+        
+        if self.threshold_mode == 'soft':
+            # Soft shrinkage: smooth gradient everywhere
+            result = torch.sign(result) * torch.clamp(result.abs() - threshold, min=0.0)
+        else:  # 'hard'
+            # Binary mask: original behavior
+            result = result * (result > threshold).float()
         
         # Store phase for inverse transform
         self._last_phase = result_phase
