@@ -134,9 +134,14 @@ DDKFLayer(
     gamma=[0.5, 0.5],
     alpha=0.15,            # Alpha threshold
     beta=0.9,             # Beta threshold
+    threshold_mode='hard', # 'hard' or 'soft' (differentiable)
     window_size=20,
     step_size=4,
-    interp_factor=0.25           # Cubic interpolation factor
+    interp_factor=0.25,    # Cubic interpolation factor
+    learn_alpha=False,     # Make alpha learnable
+    learn_beta=False,      # Make beta learnable
+    learn_sigmoid_temp=False,  # Make sigmoid temp learnable (soft mode only)
+    sigmoid_temp=1.0       # Temperature for soft operations
 )
 ```
 
@@ -165,6 +170,14 @@ Beta threshold for the smart minimum operation. Controls which frequency compone
 ### gamma (default: equal weights)
 Kernel mixing weights. Automatically normalized to sum to 1. For a hybrid kernel with two components, `gamma=[0.5, 0.5]` gives equal weight to each kernel.
 
+### threshold_mode (default: 'hard')
+Controls differentiability of thresholding operations:
+- `'hard'`: Binary masking (faster, non-differentiable)
+- `'soft'`: Smooth gradients via LogSumExp (fully differentiable, enables learning)
+
+### sigmoid_temp (default: 1.0)
+Temperature parameter for soft operations (only used when threshold_mode='soft'). Higher values approach hard thresholding. Can be made learnable with learn_sigmoid_temp=True.
+
 ## Available Kernels
 
 - `"polynomial"` - Polynomial kernel: (x + offset)^degree
@@ -179,6 +192,8 @@ Kernel mixing weights. Automatically normalized to sum to 1. For a hybrid kernel
   - Default params: scale=1/3, power=3
 - `"gamma_rational"` - Gamma rational quadratic kernel: (1 + scale * (x + offset)²)^(-power)
   - Default params: scale=1/3, offset=1.7, power=3
+- **LearnableChebyshevKernel** - Learnable Chebyshev polynomial kernel with trainable coefficients
+  - Example: `LearnableChebyshevKernel(degree=4, init_coeffs=[0, 1, 0, 0])`
 
 **Custom kernels:** You can also pass your own callable functions.
 ```
