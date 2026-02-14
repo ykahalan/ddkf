@@ -47,51 +47,6 @@ python3 run_example.py        # Basic signal processing demo
 python3 DDKFvsDWT.py          # ML classification comparison (requires aeon, pywt)
 ```
 
-## PyTorch Example (Learnable Parameters)
-
-DDKF v4.0 supports learnable parameters via PyTorch. All parameters (alpha, beta, gamma) can be optimized through backpropagation:
-
-```python
-import torch
-from ddkf import DDKFLayer
-
-# Create learnable DDKF layer
-layer = DDKFLayer(
-    kernel_names=['polynomial', 'gaussian', 'polynomial'],
-    gamma=[0.5, 0.3, 0.2],        # Initial weights
-    alpha=0.15,             # Initial alpha threshold
-    beta=0.9,              # Initial beta threshold
-    window_size=20,
-    interp_factor=0.25            # Backpropagatable cubic interpolation
-)
-
-# Training loop
-optimizer = torch.optim.Adam(layer.parameters(), lr=0.001)
-
-for epoch in range(100):
-    # Forward pass
-    signal_batch = torch.randn(16, 1000)  # Batch of signals
-    tfr = layer(signal_batch)
-    
-    # Compute loss
-    loss = your_loss_function(tfr, target)
-    
-    # Backward pass
-    optimizer.zero_grad()
-    loss.backward()  # Gradients flow through interpolation!
-    optimizer.step()
-    
-    # Parameters are updated
-    if epoch % 20 == 0:
-        print(f"Epoch {epoch}: alpha={layer.alpha.item():.4f}, "
-              f"beta={layer.beta.item():.4f}")
-
-# Check final learned parameters
-print(f"Learned gamma weights: {layer.gamma.detach().numpy()}")
-print(f"Learned alpha: {layer.alpha.item():.4f}")
-print(f"Learned beta: {layer.beta.item():.4f}")
-```
-
 ## API Overview
 
 ### Main Class: `DDKF`
