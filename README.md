@@ -1,6 +1,6 @@
-# ddkf
+# ntfa-lk
 
-Minimal package providing `DDKF` for time-frequency decomposition with arbitrary kernels. Available to install with pip as package `ddkf`.
+Minimal package providing `NTFA-LK` for time-frequency decomposition with arbitrary kernels. Available to install with pip as package `ntfa-lk`.
 
 **New in v4.0:**
 -   **Corrected algorithm** - Window-by-window kernel application matching MATLAB reference
@@ -14,7 +14,7 @@ Minimal package providing `DDKF` for time-frequency decomposition with arbitrary
 
 ```bash
 # Basic install
-python3 -m pip install ddkf
+python3 -m pip install ntfa-lk
 ```
 
 ## ⚠️ Important: Use the Polynomial Kernel
@@ -31,10 +31,10 @@ gamma=[0.5, 0.5]
 
 The `examples/` folder contains complete working examples:
 
-- **run_example.py** - Basic DDKF demonstration showing signal decomposition, time-frequency representation, and inverse transform with a noisy multi-frequency signal (3 Hz + 7 Hz + noise)
+- **run_example.py** - Basic NTFA-LK demonstration showing signal decomposition, time-frequency representation, and inverse transform with a noisy multi-frequency signal (3 Hz + 7 Hz + noise)
 
-- **DDKFvsDWT.py** - Machine learning comparison demonstrating DDKF vs DWT (Discrete Wavelet Transform) as feature extractors for time series classification:
-  - Extracts 2D time-frequency features using DDKF
+- **NTFAvsDWT.py** - Machine learning comparison demonstrating NTFA-LK vs DWT (Discrete Wavelet Transform) as feature extractors for time series classification:
+  - Extracts 2D time-frequency features using NTFA-LK
   - Extracts 2D wavelet coefficients using DWT
   - Trains separate CNNs on each feature type
   - Compares classification accuracy on ECG200 dataset
@@ -44,12 +44,12 @@ To run the examples:
 ```bash
 cd examples/
 python3 run_example.py        # Basic signal processing demo
-python3 DDKFvsDWT.py          # ML classification comparison (requires aeon, pywt)
+python3 NTFAvsDWT.py          # ML classification comparison (requires aeon, pywt)
 ```
 
 ## API Overview
 
-### Main Class: `DDKF`
+### Main Class: `NTFA-LK`
 
 ```python
 DDKF(
@@ -81,10 +81,10 @@ denoised = denoise(
 )
 ```
 
-### PyTorch Layer: `DDKFLayer`
+### PyTorch Layer: `NTFALayer`
 
 ```python
-DDKFLayer(
+NTFALayer(
     kernel_names=['polynomial', 'gaussian'],
     gamma=[0.5, 0.5],
     alpha=0.15,            # Alpha threshold
@@ -165,7 +165,7 @@ Temperature parameter for soft operations (only used when threshold_mode='soft')
 You can provide your own kernel functions:
 ```python
 import torch
-from ddkf import DDKFLayer
+from ntfa_lk import NTFALayer
 
 # Define custom kernel
 def my_custom_kernel(x, scale=2.0, power=3):
@@ -173,7 +173,7 @@ def my_custom_kernel(x, scale=2.0, power=3):
     return (x * scale) ** power
 
 # Use with DDKF
-layer = DDKFLayer(
+layer = NTFALayer(
     kernel_names=[my_custom_kernel, 'gaussian'],  # Mix custom + builtin
     kernel_params=[
         {'scale': 1.5, 'power': 2},  # params for custom kernel
@@ -183,7 +183,7 @@ layer = DDKFLayer(
 )
 
 # Or use lambda functions
-layer = DDKFLayer(
+layer = NTFALayer(
     kernel_names=[
         lambda x, scale=1.0: torch.exp(-x * scale),
         'polynomial'

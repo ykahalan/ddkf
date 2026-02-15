@@ -1,5 +1,5 @@
 """
-DDKF - Dual Dynamic Kernel Filtering
+NTFA-LK - Novel Time-Frequency Analysis with Learnable Kernels
 
 PyTorch implementation with:
 - Arbitrary number of kernels
@@ -10,10 +10,10 @@ PyTorch implementation with:
 Quick Start
 -----------
 >>> import torch
->>> from ddkf import DDKFLayer
+>>> from ntfa_lk import NTFALayer
 >>> 
 >>> # Hybrid kernel with interpolation (matches 2DKF)
->>> layer = DDKFLayer(
+>>> layer = NTFALayer(
 ...     kernel_names=['polynomial', 'gaussian'],
 ...     gamma=[0.5, 0.5],  # 50% poly, 50% gaussian
 ...     interp_factor=0.25,  # 4x upsampling
@@ -27,7 +27,7 @@ Quick Start
 Training (All Parameters Learnable)
 ------------------------------------
 >>> # Create layer
->>> layer = DDKFLayer(
+>>> layer = NTFALayer(
 ...     kernel_names=['polynomial', 'gaussian', 'polynomial'],
 ...     gamma=[0.5, 0.3, 0.2],     # Learnable!
 ...     alpha=0.12,          # Learnable!
@@ -58,17 +58,17 @@ Parameter Names (Following Paper Convention)
 - **gamma**: Kernel mixing weights (learnable, auto-normalized)
 """
 
-from .ddkf import (
-    DDKFLayer,
-    DDKFFeatureExtractor,
+from .ntfa_lk import (
+    NTFALayer,
+    NTFAFeatureExtractor,
     Kernels,
     cubic_interpolate_1d,
 )
 
 __version__ = "4.0.0"  # Major version bump due to breaking changes
 __all__ = [
-    'DDKFLayer',
-    'DDKFFeatureExtractor', 
+    'NTFALayer',
+    'NTFAFeatureExtractor', 
     'Kernels',
     'cubic_interpolate_1d',
 ]

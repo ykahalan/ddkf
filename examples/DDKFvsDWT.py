@@ -1,14 +1,14 @@
 """
-ML Example: DDKF vs DWT Feature Extraction for Time Series Classification
+ML Example: NTFA-LK vs DWT Feature Extraction for Time Series Classification
 
-This script demonstrates using DDKF for feature extraction in a time series
+This script demonstrates using NTFA-LK for feature extraction in a time series
 classification task using the aeon library. We compare:
-1. DDKF-based features → CNN
+1. NTFA-LK-based features → CNN
 2. DWT-based features → CNN
 
 Dataset: Aeon univariate time series classification dataset
 
-UPDATED: Uses corrected DDKF API with proper parameter names
+UPDATED: Uses corrected NTFA-LK API with proper parameter names
 """
 
 import numpy as np
@@ -16,8 +16,8 @@ import matplotlib.pyplot as plt
 from typing import Tuple, List
 
 print("=" * 80)
-print("DDKF vs DWT for Time Series Classification")
-print("(Using Corrected DDKF Implementation)")
+print("NTFA-LK vs DWT for Time Series Classification")
+print("(Using Corrected NTFA-LK Implementation)")
 print("=" * 80)
 
 # Check dependencies
@@ -56,17 +56,17 @@ except ImportError:
     print("  Scikit-learn not available. Install with: pip install scikit-learn")
     raise
 
-# Import DDKF - UPDATED to use corrected implementation
-from ddkf import DDKFLayer
+# Import NTFA-LK - UPDATED to use corrected implementation
+from ntfa_lk import NTFALayer
 
-print("  DDKF available (corrected implementation)")
+print("  NTFA-LK available (corrected implementation)")
 
 
 # =============================================================================
 # Feature Extraction Functions
 # =============================================================================
 
-def extract_ddkf_features(
+def extract_ntfa_features(
     time_series: np.ndarray,
     window_size: int = 20,
     step_size: int = 8,
@@ -74,7 +74,7 @@ def extract_ddkf_features(
     beta: float = 0.85,
     kernel: List[str] = None
 ) -> np.ndarray:
-    """Extract DDKF-based features from a time series.
+    """Extract NTFA-LK-based features from a time series.
     
     Returns the time-frequency representation as a 2D feature map.
     
@@ -83,9 +83,9 @@ def extract_ddkf_features(
     time_series : np.ndarray
         Input time series
     window_size : int
-        DDKF window size
+        NTFA-LK window size
     step_size : int
-        DDKF step size
+        NTFA-LK step size
     alpha : float
         Alpha threshold for final smoothing
     beta : float
@@ -101,8 +101,8 @@ def extract_ddkf_features(
     if kernel is None:
         kernel = ["polynomial", "gaussian"]  # Hybrid kernel
     
-    # Create DDKFLayer with CORRECTED parameter names
-    layer = DDKFLayer(
+    # Create NTFALayer with CORRECTED parameter names
+    layer = NTFALayer(
         kernel_names=kernel,
         gamma=[0.5, 0.5],  # Equal weights for hybrid
         window_size=window_size,
@@ -129,7 +129,7 @@ def extract_ddkf_features(
         
         return tfr
     except Exception as e:
-        print(f"Warning: DDKF extraction failed: {e}")
+        print(f"Warning: NTFA-LK extraction failed: {e}")
         import traceback
         traceback.print_exc()
         # Return zero features
@@ -321,7 +321,7 @@ def train_cnn(
 # =============================================================================
 
 def run_experiment():
-    """Run the full DDKF vs DWT comparison experiment."""
+    """Run the full NTFA-LK vs DWT comparison experiment."""
     
     print("\n" + "=" * 80)
     print("Loading Dataset")
@@ -366,52 +366,52 @@ def run_experiment():
     print(f"Class distribution (train): {np.bincount(y_train_encoded)}")
     
     # =============================================================================
-    # Extract DDKF Features
+    # Extract NTFA-LK Features
     # =============================================================================
     
     print("\n" + "=" * 80)
-    print("Extracting DDKF Features (Corrected Implementation)")
+    print("Extracting NTFA-LK Features (Corrected Implementation)")
     print("=" * 80)
     
-    ddkf_features_train = []
+    ntfa_features_train = []
     for i, ts in enumerate(X_train):
         if (i + 1) % 20 == 0:
             print(f"Processing {i+1}/{len(X_train)}...", end='\r')
-        features = extract_ddkf_features(
+        features = extract_ntfa_features(
             ts,
             alpha=0.001,
             beta=0.03
         )
-        ddkf_features_train.append(features)
+        ntfa_features_train.append(features)
     print(f"Processed {len(X_train)} training samples" + " " * 20)
     
-    ddkf_features_test = []
+    ntfa_features_test = []
     for i, ts in enumerate(X_test):
-        features = extract_ddkf_features(
+        features = extract_ntfa_features(
             ts,
             alpha=0.001,
             beta=0.03
         )
-        ddkf_features_test.append(features)
+        ntfa_features_test.append(features)
     print(f"Processed {len(X_test)} test samples")
     
     # Determine target shape (use median dimensions)
-    shapes = [f.shape for f in ddkf_features_train]
+    shapes = [f.shape for f in ntfa_features_train]
     target_h = int(np.median([s[0] for s in shapes]))
     target_w = int(np.median([s[1] for s in shapes]))
-    target_shape_ddkf = (target_h, target_w)
+    target_shape_ntfa = (target_h, target_w)
     
-    print(f"Target DDKF feature shape: {target_shape_ddkf}")
+    print(f"Target NTFA-LK feature shape: {target_shape_ntfa}")
     
     # Pad/crop to uniform size
-    X_train_ddkf = np.array([
-        pad_or_crop_features(f, target_shape_ddkf) for f in ddkf_features_train
+    X_train_ntfa = np.array([
+        pad_or_crop_features(f, target_shape_ntfa) for f in ntfa_features_train
     ])
-    X_test_ddkf = np.array([
-        pad_or_crop_features(f, target_shape_ddkf) for f in ddkf_features_test
+    X_test_ntfa = np.array([
+        pad_or_crop_features(f, target_shape_ntfa) for f in ntfa_features_test
     ])
     
-    print(f"DDKF features shape: {X_train_ddkf.shape}")
+    print(f"NTFA-LK features shape: {X_train_ntfa.shape}")
     
     # =============================================================================
     # Extract DWT Features
@@ -454,28 +454,28 @@ def run_experiment():
     print(f"DWT features shape: {X_train_dwt.shape}")
     
     # =============================================================================
-    # Train CNN on DDKF Features
+    # Train CNN on NTFA-LK Features
     # =============================================================================
     
     print("\n" + "=" * 80)
-    print("Training CNN on DDKF Features")
+    print("Training CNN on NTFA-LK Features")
     print("=" * 80)
     
     if torch is not None:
-        model_ddkf, history_ddkf = train_cnn(
-            X_train_ddkf, y_train_encoded,
-            X_test_ddkf, y_test_encoded,
+        model_ntfa, history_ntfa = train_cnn(
+            X_train_ntfa, y_train_encoded,
+            X_test_ntfa, y_test_encoded,
             num_classes=num_classes,
             epochs=30,
             batch_size=16,
             lr=0.001
         )
         
-        final_test_acc_ddkf = history_ddkf["test_acc"][-1]
-        print(f"\nFinal DDKF Test Accuracy: {final_test_acc_ddkf:.2f}%")
+        final_test_acc_ntfa = history_ntfa["test_acc"][-1]
+        print(f"\nFinal NTFA-LK Test Accuracy: {final_test_acc_ntfa:.2f}%")
     else:
-        history_ddkf = None
-        final_test_acc_ddkf = 0
+        history_ntfa = None
+        final_test_acc_ntfa = 0
     
     # =============================================================================
     # Train CNN on DWT Features
@@ -523,9 +523,9 @@ def run_experiment():
     plt.legend()
     
     plt.subplot(3, 3, 2)
-    plt.imshow(X_train_ddkf[idx], aspect='auto', cmap='viridis')
+    plt.imshow(X_train_ntfa[idx], aspect='auto', cmap='viridis')
     plt.colorbar(label='Magnitude')
-    plt.title('DDKF Features (Corrected)')
+    plt.title('NTFA-LK Features (Corrected)')
     plt.xlabel('Frequency')
     plt.ylabel('Time Window')
     
@@ -547,36 +547,36 @@ def run_experiment():
         plt.legend()
         
         plt.subplot(3, 3, 5 + i*3)
-        plt.imshow(X_train_ddkf[idx], aspect='auto', cmap='viridis')
-        plt.title('DDKF Features')
+        plt.imshow(X_train_ntfa[idx], aspect='auto', cmap='viridis')
+        plt.title('NTFA-LK Features')
         
         plt.subplot(3, 3, 6 + i*3)
         plt.imshow(X_train_dwt[idx], aspect='auto', cmap='viridis')
         plt.title('DWT Features')
     
-    plt.suptitle('Feature Extraction Comparison (Corrected DDKF)', fontsize=14, fontweight='bold')
+    plt.suptitle('Feature Extraction Comparison (Corrected NTFA-LK)', fontsize=14, fontweight='bold')
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.savefig('ml_features_comparison_corrected.png', dpi=150, bbox_inches='tight')
     print("  Saved ml_features_comparison_corrected.png")
     
     # Plot training curves
-    if history_ddkf is not None and history_dwt is not None:
+    if history_ntfa is not None and history_dwt is not None:
         fig2 = plt.figure(figsize=(12, 5))
         
         plt.subplot(1, 2, 1)
-        plt.plot(history_ddkf["train_acc"], 'b-', label='DDKF Train', linewidth=2)
-        plt.plot(history_ddkf["test_acc"], 'b--', label='DDKF Test', linewidth=2)
+        plt.plot(history_ntfa["train_acc"], 'b-', label='NTFA-LK Train', linewidth=2)
+        plt.plot(history_ntfa["test_acc"], 'b--', label='NTFA-LK Test', linewidth=2)
         plt.plot(history_dwt["train_acc"], 'r-', label='DWT Train', linewidth=2)
         plt.plot(history_dwt["test_acc"], 'r--', label='DWT Test', linewidth=2)
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy (%)')
-        plt.title('Training Curves (Corrected DDKF)')
+        plt.title('Training Curves (Corrected NTFA-LK)')
         plt.legend()
         plt.grid(True, alpha=0.3)
         
         plt.subplot(1, 2, 2)
-        methods = ['DDKF\n(Corrected)', 'DWT']
-        accuracies = [final_test_acc_ddkf, final_test_acc_dwt]
+        methods = ['NTFA-LK\n(Corrected)', 'DWT']
+        accuracies = [final_test_acc_ntfa, final_test_acc_dwt]
         colors = ['#2ecc71', '#e74c3c']
         
         bars = plt.bar(methods, accuracies, color=colors, alpha=0.7, edgecolor='black', linewidth=2)
@@ -602,25 +602,25 @@ def run_experiment():
     # =============================================================================
     
     print("\n" + "=" * 80)
-    print("RESULTS SUMMARY (Using Corrected DDKF Implementation)")
+    print("RESULTS SUMMARY (Using Corrected NTFA-LK Implementation)")
     print("=" * 80)
     print(f"Dataset: {len(X_train)} train, {len(X_test)} test")
     print(f"Number of classes: {num_classes}")
-    print(f"\nDDKF Features (Corrected):")
-    print(f"  Shape: {X_train_ddkf.shape}")
-    print(f"  Test Accuracy: {final_test_acc_ddkf:.2f}%")
+    print(f"\nNTFA-LK Features (Corrected):")
+    print(f"  Shape: {X_train_ntfa.shape}")
+    print(f"  Test Accuracy: {final_test_acc_ntfa:.2f}%")
     print(f"\nDWT Features:")
     print(f"  Shape: {X_train_dwt.shape}")
     print(f"  Test Accuracy: {final_test_acc_dwt:.2f}%")
     
-    if final_test_acc_ddkf > final_test_acc_dwt:
-        improvement = final_test_acc_ddkf - final_test_acc_dwt
-        print(f"\n  DDKF outperforms DWT by {improvement:.2f}%")
-    elif final_test_acc_dwt > final_test_acc_ddkf:
-        improvement = final_test_acc_dwt - final_test_acc_ddkf
-        print(f"\n  DWT outperforms DDKF by {improvement:.2f}%")
+    if final_test_acc_ntfa > final_test_acc_dwt:
+        improvement = final_test_acc_ntfa - final_test_acc_dwt
+        print(f"\n  NTFA-LK outperforms DWT by {improvement:.2f}%")
+    elif final_test_acc_dwt > final_test_acc_ntfa:
+        improvement = final_test_acc_dwt - final_test_acc_ntfa
+        print(f"\n  DWT outperforms NTFA-LK by {improvement:.2f}%")
     else:
-        print(f"\n= DDKF and DWT perform equally")
+        print(f"\n= NTFA-LK and DWT perform equally")
     
     print("=" * 80)
     

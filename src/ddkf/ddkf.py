@@ -1,4 +1,4 @@
-"""DDKF - Dual Dynamic Kernel Filtering (Corrected to match paper)
+"""NTFA-LK - Novel Time-Frequency Analysis with Learnable Kernels (Corrected to match paper)
 
 Fixed implementation matching the paper reference code exactly.
 With soft minimum and learnable sigmoid temperature for FULL differentiability.
@@ -185,11 +185,11 @@ class Kernels:
 
 
 # =============================================================================
-# PyTorch DDKF (Corrected to match paper)
+# PyTorch NTFA-LK (Corrected to match paper)
 # =============================================================================
 
-class DDKFLayer(nn.Module):
-    """Learnable DDKF layer for PyTorch with cubic interpolation.
+class NTFALayer(nn.Module):
+    """Learnable NTFA-LK layer for PyTorch with cubic interpolation.
     
     CORRECTED to match paper reference implementation exactly.
     
@@ -530,14 +530,14 @@ class DDKFLayer(nn.Module):
         return result.squeeze(0) if squeeze else result
 
 
-class DDKFFeatureExtractor(nn.Module):
-    """DDKF feature extractor for ML with interpolation."""
+class NTFAFeatureExtractor(nn.Module):
+    """NTFA-LK feature extractor for ML with interpolation."""
     
     def __init__(self, kernel_names=None, flatten=False, **kwargs):
         super().__init__()
-        self.ddkf = DDKFLayer(kernel_names=kernel_names, **kwargs)
+        self.ntfa = NTFALayer(kernel_names=kernel_names, **kwargs)
         self.flatten = flatten
     
     def forward(self, x):
-        tfr = self.ddkf(x)
+        tfr = self.ntfa(x)
         return tfr.view(tfr.size(0), -1) if self.flatten else tfr
