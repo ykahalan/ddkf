@@ -2,14 +2,6 @@
 
 Minimal package providing `NTFA-LK` for time-frequency decomposition with arbitrary kernels. Available to install with pip as package `ntfa-lk`.
 
-**New in v4.0:**
--   **Corrected algorithm** - Window-by-window kernel application matching MATLAB reference
--   **Arbitrary number of kernels** (not limited to 2)
--   **No scipy dependency** (pure PyTorch)
-
-**Breaking Changes from v3.x:**
-- Algorithm corrected to apply kernels window-by-window (not globally)
-
 ## Quick install
 
 ```bash
