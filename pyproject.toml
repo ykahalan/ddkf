@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ntfa-lk"
-version = "4.1.0"
+version = "1.0.0"
 description = "Novel Time-Frequency Analysis with Learnable Kernels (NTFA-LK): A minimal package with arbitrary kernels and learnable parameters"
 readme = "README.md"
 authors = [
