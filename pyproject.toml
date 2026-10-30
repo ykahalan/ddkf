@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ntfa-lk"
-version = "1.0.0"
-description = "Novel Time-Frequency Analysis with Learnable Kernels (NTFA-LK): A minimal package with arbitrary kernels and learnable parameters"
+name = "ddkf"
+version = "4.2.0"
+description = "Dual Dynamic Kernel Filtering (DDKF): A minimal package with arbitrary kernels and learnable parameters"
 readme = "README.md"
 authors = [
     { name = "Skander Bensegueni", email = "skander.bensegueni@example.com" },
@@ -17,10 +17,18 @@ dependencies = [
     "torch>=1.9", "matplotlib>=3.4"
 ]
 
+[project.optional-dependencies]
+examples = ["numpy", "aeon", "PyWavelets", "scikit-learn"]
+dev = ["pytest"]
+
 [project.urls]
-Homepage = "https://github.com/ykahalan/ntfa-lk"
-Repository = "https://github.com/ykahalan/ntfa-lk"
-Documentation = "https://github.com/ykahalan/ntfa-lk/blob/main/README.md"
+Homepage = "https://github.com/ykahalan/ddkf"
+Repository = "https://github.com/ykahalan/ddkf"
+Documentation = "https://github.com/ykahalan/ddkf/blob/main/README.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

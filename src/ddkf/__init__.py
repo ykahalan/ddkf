@@ -1,74 +1,73 @@
 """
-NTFA-LK - Novel Time-Frequency Analysis with Learnable Kernels
+DDKF - Dual Dynamic Kernel Filtering
 
 PyTorch implementation with:
-- Arbitrary number of kernels
-- Learnable parameters (alpha, beta, gamma)
+- Arbitrary number of kernels (built-in, custom callables or learnable nn.Modules)
+- Learnable parameters (alpha, beta, gamma, sigmoid temperature)
 - Backpropagatable cubic interpolation
+- Vectorised forward pass (batched FFT, no Python loop over windows)
 - No scipy dependency
 
 Quick Start
 -----------
 >>> import torch
->>> from ntfa_lk import NTFALayer
->>> 
->>> # Hybrid kernel with interpolation (matches 2DKF)
->>> layer = NTFALayer(
+>>> from ddkf import DDKFLayer
+>>>
+>>> layer = DDKFLayer(
 ...     kernel_names=['polynomial', 'gaussian'],
-...     gamma=[0.5, 0.5],  # 50% poly, 50% gaussian
-...     interp_factor=0.25,  # 4x upsampling
-...     alpha=0.12   # Beta threshold (paper default)
-...     beta=0.9,   # Smart minimum threshold (paper default)
+...     gamma=[0.5, 0.5],      # 50% poly, 50% gaussian
+...     interp_factor=0.25,    # 4x upsampling
+...     alpha=0.12,            # global threshold (paper default)
+...     beta=0.9,              # smart minimum threshold (paper default)
 ... )
->>> 
+>>>
 >>> signal = torch.randn(16, 1000)
->>> tfr = layer(signal)
+>>> tfr = layer(signal)                 # (16, n_windows, n_freqs)
+>>> recovered = layer.inverse_transform(tfr)
 
-Training (All Parameters Learnable)
-------------------------------------
->>> # Create layer
->>> layer = NTFALayer(
-...     kernel_names=['polynomial', 'gaussian', 'polynomial'],
-...     gamma=[0.5, 0.3, 0.2],     # Learnable!
-...     alpha=0.12,          # Learnable!
-...     beta=0.9,           # Learnable!
-...     interp_factor=0.25         # Cubic interpolation
+Training (all parameters learnable)
+-----------------------------------
+>>> layer = DDKFLayer(
+...     kernel_names=['polynomial', 'gaussian'],
+...     threshold_mode='soft',     # differentiable thresholds
+...     learn_alpha=True,
+...     learn_beta=True,
+...     learn_gamma=True,
+...     learn_sigmoid_temp=True,
 ... )
->>> 
->>> # Training loop
 >>> optimizer = torch.optim.Adam(layer.parameters())
 >>> for signal, target in dataloader:
 ...     tfr = layer(signal)
 ...     loss = criterion(tfr, target)
-...     loss.backward()  # Gradients flow through interpolation!
+...     loss.backward()
 ...     optimizer.step()
 
-Parameter Names (Following Paper Convention)
----------------------------------------------
-- **alpha** (default=0.12): Local threshold (alpha in paper equation 4)
-  - Suppresses weak frequency components in final TFR
-  - Applied AFTER smart minimum operation
-  - Higher = more aggressive smoothing
-  
-- **beta** (default=0.9): Global threshold (beta in paper equation 5)
-  - Controls which frequency components participate in smart minimum
-  - Applied DURING smart minimum operation  
-  - Higher = more selective (only strongest frequencies)
-
-- **gamma**: Kernel mixing weights (learnable, auto-normalized)
+Parameter names (paper convention)
+----------------------------------
+- alpha (default 0.12): global threshold (paper eq. 4), applied AFTER the smart minimum
+- beta  (default 0.9):  smart-minimum threshold (paper eq. 5), applied DURING the smart minimum
+- gamma: kernel mixing weights, normalised to sum to 1
 """
 
-from .ntfa_lk import (
+from .ddkf import (
+    DDKFLayer,
+    DDKFFeatureExtractor,
     NTFALayer,
     NTFAFeatureExtractor,
     Kernels,
+    LearnableChebyshevKernel,
     cubic_interpolate_1d,
+    soft_minimum,
 )
 
-__version__ = "4.0.0"  # Major version bump due to breaking changes
+__version__ = "4.2.0"
 __all__ = [
+    'DDKFLayer',
+    'DDKFFeatureExtractor',
     'NTFALayer',
-    'NTFAFeatureExtractor', 
+    'NTFAFeatureExtractor',
     'Kernels',
+    'LearnableChebyshevKernel',
     'cubic_interpolate_1d',
+    'soft_minimum',
 ]

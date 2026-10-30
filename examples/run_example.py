@@ -1,11 +1,11 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from ntfa_lk import NTFALayer
+from ddkf import DDKFLayer
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("NTFA-LK Example: Noisy Signal Decomposition and Recovery")
+    print("DDKF Example: Noisy Signal Decomposition and Recovery")
     print("(PyTorch version with cubic interpolation)")
     print("=" * 70)
     
@@ -25,9 +25,9 @@ if __name__ == "__main__":
     # Convert to PyTorch
     signal_torch = torch.from_numpy(signal).float()
     
-    # Create NTFA-LK layer with hybrid kernel
-    print("Applying NTFA-LK with hybrid kernel...")
-    layer = NTFALayer(
+    # Create DDKF layer with hybrid kernel
+    print("Applying DDKF with hybrid kernel...")
+    layer = DDKFLayer(
         kernel_names=["polynomial", "gaussian"],
         gamma=[0.5, 0.5],
         window_size=window_size,
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     plt.imshow(tfr_np, aspect='auto', cmap='viridis')
     plt.colorbar(label='Magnitude')
-    plt.title('NTFA-LK Time-Frequency Representation (with cubic interpolation)')
+    plt.title('DDKF Time-Frequency Representation (with cubic interpolation)')
     plt.xlabel('Frequency bins')
     plt.ylabel('Time windows')
     plt.tight_layout()
@@ -67,8 +67,8 @@ if __name__ == "__main__":
     plt.legend()
     
     plt.subplot(2, 1, 2)
-    plt.plot(tfr_np.sum(axis=1), 'b-', linewidth=1.5, label='NTFA-LK output')
-    plt.title('NTFA-LK Processing Result')
+    plt.plot(tfr_np.sum(axis=1), 'b-', linewidth=1.5, label='DDKF output')
+    plt.title('DDKF Processing Result')
     plt.xlabel('Time windows')
     plt.ylabel('Magnitude')
     plt.grid(True, alpha=0.3)
@@ -78,5 +78,5 @@ if __name__ == "__main__":
     plt.show()
     
     print("=" * 70)
-    print("NTFA-LK processing complete")
+    print("DDKF processing complete")
     print("=" * 70)

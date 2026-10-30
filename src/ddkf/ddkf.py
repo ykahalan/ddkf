@@ -1,13 +1,24 @@
-"""NTFA-LK - Novel Time-Frequency Analysis with Learnable Kernels (Corrected to match paper)
+"""DDKF - Dual Dynamic Kernel Filtering.
 
-Fixed implementation matching the paper reference code exactly.
-With soft minimum and learnable sigmoid temperature for FULL differentiability.
+PyTorch implementation of DDKF with:
 
-BETA GRADIENT FIX: Beta now has DIRECT gradient path in soft mode!
+- an arbitrary number of (built-in, custom or learnable) kernels,
+- learnable alpha / beta / gamma / sigmoid-temperature parameters,
+- a backpropagatable cubic interpolation front end,
+- a fully vectorised forward pass (one batched FFT per pass instead of a
+  Python loop over windows),
+- a ``'soft'`` threshold mode that makes every operation differentiable.
+
+The algorithm itself is unchanged from the loop-based reference
+implementation (window-by-window kernel application, per-window smart
+minimum, global alpha threshold); the vectorised code produces the same
+numbers, only faster.
 """
 import torch
 import torch.nn as nn
-from typing import List, Optional
+from typing import Callable, List, Optional, Sequence, Union
+
+KernelSpec = Union[str, Callable[..., torch.Tensor], nn.Module]
 
 
 # =============================================================================
@@ -15,99 +26,91 @@ from typing import List, Optional
 # =============================================================================
 
 def cubic_interpolate_1d(signal: torch.Tensor, interp_factor: float = 0.25) -> torch.Tensor:
-    """
-    Cubic spline interpolation for 1D signals (backpropagatable).
-    
+    """Cubic interpolation for 1D signals (backpropagatable).
+
     Parameters
     ----------
     signal : torch.Tensor
-        Shape (batch_size, length) or (length,)
+        Shape ``(batch_size, length)`` or ``(length,)``. Any float dtype.
     interp_factor : float
-        Interpolation factor (0.25 means 4x points)
-    
+        Sampling step in units of the original sample spacing. ``0.25``
+        produces 4x as many points, ``1.0`` leaves the length unchanged and
+        values above ``1.0`` down-sample.
+
     Returns
     -------
     torch.Tensor
-        Interpolated signal
+        Interpolated signal with ``int((length - 1) / interp_factor) + 1``
+        points, same dtype and device as the input.
     """
+    if interp_factor <= 0:
+        raise ValueError(f"interp_factor must be > 0, got {interp_factor}")
+
     if signal.dim() == 1:
         signal = signal.unsqueeze(0)
         squeeze = True
-    else:
+    elif signal.dim() == 2:
         squeeze = False
-    
+    else:
+        raise ValueError(f"signal must be 1D or 2D, got shape {tuple(signal.shape)}")
+
     batch_size, n = signal.shape
-    
+
     if n < 2:
         return signal.squeeze(0) if squeeze else signal
-    
-    # Calculate new length
+
     num_points = int((n - 1) / interp_factor) + 1
-    
-    # Create normalized coordinates [0, 1]
-    t_normalized = torch.linspace(0, 1, num_points, device=signal.device)
-    
-    # Scale to signal indices [0, n-1]
-    t_indices = t_normalized * (n - 1)
-    
-    # For grid_sample, we need to reshape and normalize to [-1, 1]
-    # grid_sample expects (N, C, H, W) input and (N, H_out, W_out, 2) grid
-    
-    # Reshape signal: (batch, 1, 1, length)
-    signal_4d = signal.unsqueeze(1).unsqueeze(2)
-    
-    # Create grid for sampling: normalize to [-1, 1]
-    grid_x = (t_indices / (n - 1)) * 2 - 1
+
+    # grid_sample needs the grid in the same dtype as the input and expects
+    # (N, C, H, W) input with an (N, H_out, W_out, 2) grid in [-1, 1].
+    grid_x = torch.linspace(-1.0, 1.0, num_points, device=signal.device, dtype=signal.dtype)
     grid_y = torch.zeros_like(grid_x)
-    
-    # Grid shape: (batch, 1, num_points, 2) where last dim is (x, y)
-    grid = torch.stack([grid_x, grid_y], dim=-1)
-    grid = grid.unsqueeze(0).expand(batch_size, 1, -1, 2)
-    
-    # Apply cubic interpolation
+    grid = torch.stack([grid_x, grid_y], dim=-1)              # (num_points, 2)
+    grid = grid.view(1, 1, num_points, 2).expand(batch_size, 1, num_points, 2)
+
+    signal_4d = signal.unsqueeze(1).unsqueeze(2)              # (batch, 1, 1, n)
+
     interpolated = torch.nn.functional.grid_sample(
         signal_4d,
         grid,
         mode='bicubic',
         padding_mode='border',
-        align_corners=True
+        align_corners=True,
     )
-    
-    # Reshape back: (batch, num_points)
-    result = interpolated.squeeze(1).squeeze(1)
-    
+
+    result = interpolated.reshape(batch_size, num_points)
     return result.squeeze(0) if squeeze else result
 
 
-def soft_minimum(a: torch.Tensor, b: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
-    """Differentiable soft minimum using LogSumExp (STE-like).
-    
-    As temperature → ∞, this approaches hard minimum.
-    At temperature = 1.0, it's a smooth differentiable approximation.
-    
-    Formula: -logsumexp([-a*temp, -b*temp]) / temp
-    
-    This ensures gradients flow to BOTH a and b, unlike torch.minimum
-    which only sends gradients to whichever is smaller.
+def soft_minimum(a: torch.Tensor, b: torch.Tensor, temperature=1.0) -> torch.Tensor:
+    """Differentiable soft minimum using LogSumExp.
+
+    ``-logsumexp([-a*t, -b*t]) / t``; approaches ``min(a, b)`` as ``t`` grows.
+    Unlike :func:`torch.minimum`, gradients flow to both inputs.
     """
     stacked = torch.stack([-a * temperature, -b * temperature], dim=0)
     return -torch.logsumexp(stacked, dim=0) / temperature
 
 
 class LearnableChebyshevKernel(nn.Module):
-    """Learnable Chebyshev polynomial kernel with trainable coefficients."""
-    
-    def __init__(self, degree=4, init_coeffs=None):
+    """Learnable Chebyshev polynomial kernel with trainable coefficients.
+
+    ``k(x) = sum_n c_n T_n(tanh(x))``. ``init_coeffs`` overrides ``degree``.
+    """
+
+    def __init__(self, degree: int = 4, init_coeffs: Optional[Sequence[float]] = None):
         super().__init__()
         if init_coeffs is not None:
-            self.coeffs = nn.Parameter(torch.tensor(init_coeffs, dtype=torch.float32))
+            self.coeffs = nn.Parameter(torch.tensor(list(init_coeffs), dtype=torch.float32))
         else:
+            if degree < 1:
+                raise ValueError("degree must be >= 1")
             init = torch.zeros(degree)
             if degree > 1:
                 init[1] = 1.0
             self.coeffs = nn.Parameter(init)
-    
-    def forward(self, x):
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_cheb = torch.tanh(x)
         degree = len(self.coeffs)
         T_prev2 = torch.ones_like(x_cheb)
@@ -121,55 +124,65 @@ class LearnableChebyshevKernel(nn.Module):
                 T_prev2, T_prev1 = T_prev1, T_n
         return out
 
+
 # =============================================================================
 # Kernels
 # =============================================================================
 
 class Kernels:
-    """Kernel functions for PyTorch."""
-    
+    """Built-in point-wise kernel functions."""
+
+    # Default parameters (paper values) used when the user passes no
+    # ``kernel_params`` for a built-in kernel.
+    DEFAULT_PARAMS = {
+        'polynomial': {'degree': 2, 'offset': 1.3},
+        'gaussian': {'center': 0.7, 'sigma': 1.0},
+    }
+
     @staticmethod
     def polynomial(x: torch.Tensor, degree: int = 2, offset: float = 1.3) -> torch.Tensor:
         """Polynomial kernel: (x + offset)^degree"""
         return (x + offset) ** degree
-    
+
     @staticmethod
-    def gaussian(x: torch.Tensor, center: float = 13.7, sigma: float = 1.0) -> torch.Tensor:
+    def gaussian(x: torch.Tensor, center: float = 0.7, sigma: float = 1.0) -> torch.Tensor:
         """Gaussian kernel: exp(-0.5 * ((x - center) / sigma)^2)"""
         return torch.exp(-0.5 * ((x - center) / sigma) ** 2)
-        
+
     @staticmethod
     def matern32(x: torch.Tensor, offset: float = 1.7) -> torch.Tensor:
         """Matern 3/2 kernel: (1 + sqrt(3)(x + offset)) * exp(-sqrt(3)(x + offset))"""
-        sqrt3 = torch.sqrt(torch.tensor(3.0, device=x.device, dtype=x.dtype))
+        sqrt3 = 3.0 ** 0.5
         shifted_x = x + offset
         return (1 + sqrt3 * shifted_x) * torch.exp(-sqrt3 * shifted_x)
-    
+
     @staticmethod
     def matern52(x: torch.Tensor, offset: float = 1.7) -> torch.Tensor:
-        """Matern 5/2 kernel: (1 + sqrt(5)(x + offset) + (5/3)(x + offset)²) * exp(-sqrt(5)(x + offset))"""
-        sqrt5 = torch.sqrt(torch.tensor(5.0, device=x.device, dtype=x.dtype))
+        """Matern 5/2 kernel: (1 + sqrt(5)(x + offset) + (5/3)(x + offset)^2) * exp(-sqrt(5)(x + offset))"""
+        sqrt5 = 5.0 ** 0.5
         shifted_x = x + offset
-        return (1 + sqrt5 * shifted_x + (5/3) * (shifted_x ** 2)) * torch.exp(-sqrt5 * shifted_x)
-    
+        return (1 + sqrt5 * shifted_x + (5 / 3) * (shifted_x ** 2)) * torch.exp(-sqrt5 * shifted_x)
+
     @staticmethod
-    def rational(x: torch.Tensor, scale: float = 1/3, power: int = 3) -> torch.Tensor:
+    def rational(x: torch.Tensor, scale: float = 1 / 3, power: int = 3) -> torch.Tensor:
         """Rational quadratic kernel: (1 + scale * x)^(-power)"""
         return (1 + scale * x) ** (-power)
-    
+
     @staticmethod
-    def gamma_rational(x: torch.Tensor, scale: float = 1/3, offset: float = 1.7, power: int = 3) -> torch.Tensor:
-        """Gamma rational quadratic kernel: (1 + scale * (x + offset)²)^(-power)"""
-        return (1 + scale * ((x + offset) ** 2)) ** (-power)    
-        
+    def gamma_rational(x: torch.Tensor, scale: float = 1 / 3, offset: float = 1.7, power: int = 3) -> torch.Tensor:
+        """Gamma rational quadratic kernel: (1 + scale * (x + offset)^2)^(-power)"""
+        return (1 + scale * ((x + offset) ** 2)) ** (-power)
+
     @staticmethod
-    def get(name):
-        """Get kernel by name or return callable directly."""
-        # If it's already callable, return it
+    def available() -> List[str]:
+        return ['polynomial', 'gaussian', 'matern32', 'matern52', 'rational', 'gamma_rational']
+
+    @staticmethod
+    def get(name: KernelSpec) -> Callable[..., torch.Tensor]:
+        """Get a kernel by name, or return a callable unchanged."""
         if callable(name):
             return name
-        
-        # Otherwise look up by string name
+
         kernels = {
             'polynomial': Kernels.polynomial,
             'gaussian': Kernels.gaussian,
@@ -178,366 +191,338 @@ class Kernels:
             'rational': Kernels.rational,
             'gamma_rational': Kernels.gamma_rational,
         }
-        
+
         if name not in kernels:
-            raise ValueError(f"Unknown kernel: {name}. Available: {list(kernels.keys())}")
+            raise ValueError(f"Unknown kernel: {name!r}. Available: {list(kernels.keys())}")
         return kernels[name]
 
+    @staticmethod
+    def default_params(name: KernelSpec) -> dict:
+        """Default parameters for a kernel spec (empty for custom kernels)."""
+        if isinstance(name, str):
+            return dict(Kernels.DEFAULT_PARAMS.get(name, {}))
+        return {}
+
 
 # =============================================================================
-# PyTorch NTFA-LK (Corrected to match paper)
+# PyTorch DDKF
 # =============================================================================
 
-class NTFALayer(nn.Module):
-    """Learnable NTFA-LK layer for PyTorch with cubic interpolation.
-    
-    CORRECTED to match paper reference implementation exactly.
-    
-    Key fixes:
-    - Kernel applied ONLY within window (not globally)
-    - Correct parameter naming (alpha, beta)
-    - Proper phase handling
-    - Correct inverse transform weighting
-    - Soft minimum with STE for FULL differentiability
-    - Learnable sigmoid temperature
-    - BETA GRADIENT FIX: Direct multiplication in soft mode
-    
+class DDKFLayer(nn.Module):
+    """Learnable DDKF layer for PyTorch with cubic interpolation.
+
     Parameters
     ----------
-    kernel_names : list of str or callable, optional
-        Kernel names (str) or custom kernel functions (callable).
-        Custom kernels should accept (x, **params) and return torch.Tensor.
-        Default: ['polynomial', 'gaussian'] (hybrid)
-        Example: [my_custom_kernel, 'gaussian'] or ['polynomial', lambda x, scale=1.0: x * scale]
+    kernel_names : list of str, callable or nn.Module, optional
+        Kernel names (str), custom point-wise kernel functions (callable
+        accepting ``(x, **params)``) or learnable kernels (``nn.Module``).
+        Default: ``['polynomial', 'gaussian']`` (hybrid).
     alpha : float, default=0.12
-        Local thresholding parameter
+        Global threshold applied to the final TFR (paper eq. 4).
     beta : float, default=0.9
-        Smart minimum threshold 
-    threshold_mode : str, default='hard'
-        'hard' for non-differentiable, 'soft' for fully differentiable
+        Smart-minimum threshold (paper eq. 5).
+    threshold_mode : {'hard', 'soft'}, default='hard'
+        ``'hard'`` uses binary masks; ``'soft'`` uses smooth approximations so
+        that alpha, beta and the temperature receive gradients.
     gamma : list of float, optional
-        Initial kernel weights. Default: [0.5, 0.5] for hybrid
+        Kernel mixing weights (normalised to sum to 1). Default: equal weights.
     interp_factor : float, default=0.25
-        Interpolation factor (0.25 = 4x upsampling)
+        Interpolation step (0.25 = 4x up-sampling).
     window_size : int, default=20
-        Window size
+        Window size in interpolated samples.
     step_size : int, default=4
-        Step size
+        Window hop in interpolated samples.
     kernel_params : list of dict, optional
-        Parameters for each kernel
-    learn_alpha : bool, default=False
-        Make alpha learnable
-    learn_beta : bool, default=False
-        Make beta learnable
-    learn_sigmoid_temp : bool, default=False
-        Make sigmoid temperature learnable (only for soft mode)
+        Parameters for each kernel. Defaults to the paper values for
+        ``'polynomial'`` and ``'gaussian'`` and ``{}`` otherwise.
+    learn_alpha, learn_beta, learn_gamma, learn_sigmoid_temp : bool
+        Register the corresponding quantity as an ``nn.Parameter``.
     sigmoid_temp : float, default=1.0
-        Temperature for soft operations (higher = closer to hard)
+        Temperature for the soft operations (higher = closer to hard).
     """
-    
+
     def __init__(
         self,
-        kernel_names: Optional[List[str]] = None,
+        kernel_names: Optional[Sequence[KernelSpec]] = None,
         alpha: float = 0.12,
         beta: float = 0.9,
         threshold_mode: str = 'hard',
-        gamma: Optional[List[float]] = None,
+        gamma: Optional[Sequence[float]] = None,
         interp_factor: float = 0.25,
         window_size: int = 20,
         step_size: int = 4,
-        kernel_params: Optional[List[dict]] = None,
+        kernel_params: Optional[Sequence[dict]] = None,
         learn_alpha: bool = False,
         learn_beta: bool = False,
+        learn_gamma: bool = False,
         learn_sigmoid_temp: bool = False,
         sigmoid_temp: float = 1.0,
     ):
         super().__init__()
-        
-        # Default to hybrid kernel (polynomial + gaussian) like paper
+
         if kernel_names is None:
             kernel_names = ['polynomial', 'gaussian']
+        kernel_names = list(kernel_names)
+        if len(kernel_names) == 0:
+            raise ValueError("kernel_names must contain at least one kernel")
+        n_kernels = len(kernel_names)
 
-        # Auto-detect and store learnable kernels (nn.Module instances)
+        if threshold_mode not in ('hard', 'soft'):
+            raise ValueError(f"threshold_mode must be 'hard' or 'soft', got {threshold_mode!r}")
+        if window_size < 1:
+            raise ValueError(f"window_size must be >= 1, got {window_size}")
+        if step_size < 1:
+            raise ValueError(f"step_size must be >= 1, got {step_size}")
+        if interp_factor <= 0:
+            raise ValueError(f"interp_factor must be > 0, got {interp_factor}")
+
+        # Learnable kernels (nn.Module instances) must be registered so that
+        # their parameters are visible to optimisers and .to(device).
         self.learnable_kernels = nn.ModuleDict()
         for i, kname in enumerate(kernel_names):
             if isinstance(kname, nn.Module):
                 self.learnable_kernels[f'learnable_{i}'] = kname
-        
+            elif not (isinstance(kname, str) or callable(kname)):
+                raise TypeError(f"kernel_names[{i}] must be a str, callable or nn.Module, got {type(kname)}")
         self.kernel_names = kernel_names
-        n_kernels = len(kernel_names)
-        
-        # Setup kernel parameters
+
         if kernel_params is None:
-            # Default parameters matching paper
-            self.kernel_params = [
-                {'degree': 2, 'offset': 1.3},  # polynomial
-                {'center': 0.7, 'sigma': 1.0}   # gaussian
-            ] if n_kernels == 2 else [{} for _ in range(n_kernels)]
+            self.kernel_params = [Kernels.default_params(k) for k in kernel_names]
         else:
             if len(kernel_params) != n_kernels:
                 raise ValueError("kernel_params length must match kernel_names")
-            self.kernel_params = kernel_params
-        
-        self.interp_factor = interp_factor
-        self.window_size = window_size
-        self.step_size = step_size
-        
-        # Learnable parameters (renamed to match paper)
-        if learn_alpha:
-            self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float32))
-        else:
-            self.alpha = alpha
-        
-        if learn_beta:
-            self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float32))
-        else:
-            self.beta = beta
+            self.kernel_params = [dict(p) if p is not None else {} for p in kernel_params]
 
-        # Learnable sigmoid temperature
-        if learn_sigmoid_temp:
-            self.sigmoid_temp = nn.Parameter(torch.tensor(sigmoid_temp, dtype=torch.float32))
-        else:
-            self.sigmoid_temp = sigmoid_temp
-
+        self.interp_factor = float(interp_factor)
+        self.window_size = int(window_size)
+        self.step_size = int(step_size)
         self.threshold_mode = threshold_mode
-       
-        # Default to equal weights (0.5, 0.5 for hybrid)
+
+        if learn_alpha:
+            self.alpha = nn.Parameter(torch.tensor(float(alpha), dtype=torch.float32))
+        else:
+            self.alpha = float(alpha)
+
+        if learn_beta:
+            self.beta = nn.Parameter(torch.tensor(float(beta), dtype=torch.float32))
+        else:
+            self.beta = float(beta)
+
+        if learn_sigmoid_temp:
+            self.sigmoid_temp = nn.Parameter(torch.tensor(float(sigmoid_temp), dtype=torch.float32))
+        else:
+            self.sigmoid_temp = float(sigmoid_temp)
+
         if gamma is None:
             gamma = [1.0 / n_kernels] * n_kernels
-        self._gamma = gamma
-    
+        gamma = list(gamma)
+        if len(gamma) != n_kernels:
+            raise ValueError("gamma length must match kernel_names")
+        gamma_t = torch.tensor(gamma, dtype=torch.float32)
+        if learn_gamma:
+            self.gamma = nn.Parameter(gamma_t)
+        else:
+            self.register_buffer('gamma', gamma_t, persistent=False)
+
+        self._last_phase: Optional[torch.Tensor] = None
+
+    # ------------------------------------------------------------------ utils
+
+    def normalized_gamma(self) -> torch.Tensor:
+        """Kernel weights normalised to sum to 1."""
+        return self.gamma / self.gamma.sum()
+
     def _interpolate_signal(self, signal: torch.Tensor) -> torch.Tensor:
-        """Apply cubic interpolation (backpropagatable)."""
         return cubic_interpolate_1d(signal, self.interp_factor)
-    
+
     def _apply_kernels(self, signal: torch.Tensor) -> torch.Tensor:
-        """Apply kernel combination with learnable weights."""
-        result = torch.zeros_like(signal)
-        gamma_sum = sum(self._gamma)
-        gamma = [g / gamma_sum for g in self._gamma]
-        
+        """Weighted sum of all kernels applied point-wise to ``signal``."""
+        gamma = self.normalized_gamma().to(signal.dtype)
+        result = None
         for i, (kname, params) in enumerate(zip(self.kernel_names, self.kernel_params)):
-            # Check if it's a stored learnable kernel
             learnable_key = f'learnable_{i}'
-            
             if learnable_key in self.learnable_kernels:
-                # It's a learnable kernel (nn.Module)
                 kern_out = self.learnable_kernels[learnable_key](signal)
             else:
-                # It's a static kernel (string or callable)
-                kernel_fn = Kernels.get(kname)
-                kern_out = kernel_fn(signal, **params)
-            
-            result += gamma[i] * kern_out
-        
+                kern_out = Kernels.get(kname)(signal, **params)
+            term = gamma[i] * kern_out
+            result = term if result is None else result + term
         return result
-    
-    def forward(self, signal: torch.Tensor) -> torch.Tensor:
-        """Process signal through DDKF with interpolation.
-        
-        CORRECTED to match paper: kernels applied window-by-window!
-        
+
+    def _window_mask(self, n: int, n_windows: int, device) -> torch.Tensor:
+        """Boolean mask of shape (n_windows, n): True inside each window."""
+        idx = torch.arange(n, device=device)
+        starts = torch.arange(n_windows, device=device) * self.step_size
+        return (idx.unsqueeze(0) >= starts.unsqueeze(1)) & (idx.unsqueeze(0) < starts.unsqueeze(1) + self.window_size)
+
+    # ---------------------------------------------------------------- forward
+
+    def forward(self, signal: torch.Tensor, return_phase: bool = False):
+        """Compute the DDKF time-frequency representation.
+
         Parameters
         ----------
         signal : torch.Tensor
-            Shape (batch_size, length) or (length,)
-        
+            Shape ``(batch_size, length)`` or ``(length,)``.
+        return_phase : bool, default=False
+            Also return the phase tensor needed by :meth:`inverse_transform`.
+            The phase of the last call is always stored internally as well.
+
         Returns
         -------
-        torch.Tensor
-            TFR of shape (batch_size, n_windows, n_freqs) or (n_windows, n_freqs)
+        torch.Tensor or (torch.Tensor, torch.Tensor)
+            TFR of shape ``(batch_size, n_windows, n_freqs)`` (or
+            ``(n_windows, n_freqs)`` for a 1D input), optionally with the
+            phase tensor of the same shape.
         """
         if signal.dim() == 1:
             signal = signal.unsqueeze(0)
             squeeze = True
-        else:
+        elif signal.dim() == 2:
             squeeze = False
-        
+        else:
+            raise ValueError(f"signal must be 1D or 2D, got shape {tuple(signal.shape)}")
+        if not torch.is_floating_point(signal):
+            signal = signal.to(torch.get_default_dtype())
+
         batch_size = signal.shape[0]
-        
-        # Step 1: Cubic interpolation (backpropagatable!)
+
+        # Step 1: cubic interpolation (backpropagatable)
         interpolated_signal = self._interpolate_signal(signal)
         n = interpolated_signal.shape[1]
-        
+
         if n < self.window_size:
             raise ValueError(f"Interpolated signal ({n}) shorter than window_size ({self.window_size})")
-        
-        # Compute number of windows
+
         n_windows = (n - self.window_size) // self.step_size + 1
-        
-        # First pass: kernel IN window, zeros elsewhere (MATCHES paper!)
-        M_list, Mphase_list = [], []
-        for i in range(n_windows):
-            start = i * self.step_size
-            
-            # Extract window data
-            window_data = interpolated_signal[:, start:start + self.window_size]
-            
-            # Apply kernels ONLY to window data (CORRECTED!)
-            values_in_window = self._apply_kernels(window_data)
-            
-            # Pad with zeros before and after
-            before = torch.zeros(batch_size, start, device=signal.device)
-            after = torch.zeros(batch_size, n - start - self.window_size, device=signal.device)
-            sig_win = torch.cat([before, values_in_window, after], dim=1)
-            
-            # Compute FFT
-            L = torch.fft.fft(sig_win)
-            M_list.append(torch.abs(L))
-            Mphase_list.append(torch.angle(L))
-        
-        M = torch.stack(M_list, dim=1)  # (batch, windows, freqs)
-        Mphase = torch.stack(Mphase_list, dim=1)
-        
-        # Second pass: kernel ZEROED in window, kernel elsewhere (MATCHES paper!)
-        M1_list, M1phase_list = [], []
-        for i in range(n_windows):
-            start = i * self.step_size
-            
-            # Apply kernels to before and after regions
-            if start > 0:
-                values_before = self._apply_kernels(interpolated_signal[:, :start])
-            else:
-                values_before = torch.zeros(batch_size, 0, device=signal.device)
-            
-            # Zeros in window
-            values_in_window = torch.zeros(batch_size, self.window_size, device=signal.device)
-            
-            # After window
-            if start + self.window_size < n:
-                values_after = self._apply_kernels(interpolated_signal[:, start + self.window_size:])
-            else:
-                values_after = torch.zeros(batch_size, 0, device=signal.device)
-            
-            sig_win = torch.cat([values_before, values_in_window, values_after], dim=1)
-            
-            # Compute FFT
-            L = torch.fft.fft(sig_win)
-            M1_list.append(torch.abs(L))
-            M1phase_list.append(torch.angle(L))
-        
-        M1 = torch.stack(M1_list, dim=1)  # (batch, windows, freqs)
-        M1phase = torch.stack(M1phase_list, dim=1)
-        
-        # Smart minimum operation (CORRECTED: per-window threshold!)
-        result = torch.zeros_like(M)
-        result_phase = torch.zeros_like(Mphase)
-        
-        # Get temperature value (works for both Parameter and float)
-        temp = self.sigmoid_temp if isinstance(self.sigmoid_temp, (int, float)) else self.sigmoid_temp
-        
-        # Get beta value (works for both Parameter and float)
-        beta_val = self.beta if isinstance(self.beta, (int, float)) else self.beta
-        
-        for i in range(n_windows):
-            x = M[:, i, :]  # (batch, freqs)
-            y = M1[:, i, :]
-            
-            # Threshold computed PER WINDOW (CORRECTED!)
-            x_max_val = x.max(dim=1, keepdim=True)[0]  # (batch, 1)
 
-            if self.threshold_mode == 'soft':
-                # Soft maximum: differentiable approximation using LogSumExp
-                x_max = (x * temp).logsumexp(dim=1, keepdim=True) / temp
-            else:
-                # Hard maximum: only for non-learnable case
-                x_max = x_max_val
+        # Kernels are point-wise, so applying them inside a window and zeros
+        # elsewhere equals applying them once and masking. Compute once.
+        kernelised = self._apply_kernels(interpolated_signal)          # (batch, n)
+        in_window = self._window_mask(n, n_windows, signal.device)     # (windows, n)
+        zero = kernelised.new_zeros(())
 
+        # Pass 1: kernel IN the window, zeros elsewhere
+        sig_in = torch.where(in_window.unsqueeze(0), kernelised.unsqueeze(1), zero)   # (batch, windows, n)
+        spec_in = torch.fft.fft(sig_in, dim=-1)
+        del sig_in
+        M = spec_in.abs()
+        Mphase = spec_in.angle()
+        del spec_in
+
+        # Pass 2: zeros IN the window, kernel elsewhere
+        sig_out = torch.where(in_window.unsqueeze(0), zero, kernelised.unsqueeze(1))
+        spec_out = torch.fft.fft(sig_out, dim=-1)
+        del sig_out
+        M1 = spec_out.abs()
+        M1phase = spec_out.angle()
+        del spec_out
+
+        # Smart minimum with a per-window beta threshold
+        temp = self.sigmoid_temp
+        beta_val = self.beta
+        x, y = M, M1
+
+        if self.threshold_mode == 'soft':
+            x_max = (x * temp).logsumexp(dim=-1, keepdim=True) / temp
             beta_threshold = x_max * beta_val
+            strong_mask = torch.sigmoid(temp * (x - beta_threshold))
+            # Direct multiplication by beta gives beta a strong gradient path.
+            combined = beta_val * y * x * strong_mask
+            result = soft_minimum(x, combined, temperature=temp)
+        else:
+            x_max = x.max(dim=-1, keepdim=True)[0]
+            beta_threshold = x_max * beta_val
+            strong_mask = (x > beta_threshold).to(x.dtype)
+            combined = y * x * strong_mask
+            result = torch.minimum(x, combined)
 
-            if self.threshold_mode == 'soft':
-                # Smooth approximation with learnable temperature
-                strong_mask = torch.sigmoid(temp * (x - beta_threshold))
-                # *** BETA GRADIENT FIX: Direct multiplication gives strong gradient path ***
-                # This doesn't change algorithm (beta≈0.9), but ensures beta actually learns!
-                combined = beta_val * y * x * strong_mask
-                result[:, i, :] = soft_minimum(x, combined, temperature=temp)
-            else:
-                # Original hard threshold
-                strong_mask = (x > beta_threshold).float()
-                combined = y * x * strong_mask
-                result[:, i, :] = torch.minimum(x, combined)
-            
-            # Phase selection: element-wise
-            use_s1_phase = (M[:, i, :] < combined)
-            result_phase[:, i, :] = torch.where(use_s1_phase, Mphase[:, i, :], M1phase[:, i, :])
-        
-        # Local thresholding (α in paper equation 4)
-        flat = result.view(batch_size, -1)
-        
-        # Use soft max for alpha threshold too when in soft mode
+        # Phase: take the in-window phase where the in-window spectrum won
+        result_phase = torch.where(x < combined, Mphase, M1phase)
+        del M, M1, Mphase, M1phase, combined, strong_mask
+
+        # Global alpha threshold (paper eq. 4)
+        flat = result.reshape(batch_size, -1)
         if self.threshold_mode == 'soft':
             alpha_max = (flat * temp).logsumexp(dim=1, keepdim=True) / temp
         else:
             alpha_max = flat.max(dim=1, keepdim=True)[0]
-        
-        threshold = self.alpha * alpha_max
-        threshold = threshold.view(batch_size, 1, 1)
-        
+
+        threshold = (self.alpha * alpha_max).view(batch_size, 1, 1)
+
         if self.threshold_mode == 'soft':
-            # Soft shrinkage: smooth gradient everywhere
             result = torch.sign(result) * torch.clamp(result.abs() - threshold, min=0.0)
-        else:  # 'hard'
-            # Binary mask: original behavior
-            result = result * (result > threshold).float()
-        
-        # Store phase for inverse transform
-        self._last_phase = result_phase
-        
-        return result.squeeze(0) if squeeze else result
-    
-    def inverse_transform(self, tfr: torch.Tensor, 
-                         tfr_phase: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """Reconstruct signal from TFR (backpropagatable).
-        
-        CORRECTED: Uses beta (0.9) as correction factor to match paper.
+        else:
+            result = result * (result > threshold).to(result.dtype)
+
+        self._last_phase = result_phase.detach()
+
+        if squeeze:
+            result = result.squeeze(0)
+            result_phase = result_phase.squeeze(0)
+        if return_phase:
+            return result, result_phase
+        return result
+
+    # ---------------------------------------------------------------- inverse
+
+    def inverse_transform(self, tfr: torch.Tensor,
+                          tfr_phase: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Reconstruct a per-window signal from a TFR (backpropagatable).
+
+        Each window's spectrum is rebuilt from magnitude and phase, inverse
+        transformed, summed and scaled by ``beta``, giving one value per
+        window: output shape ``(batch_size, n_windows)`` or ``(n_windows,)``.
+
+        If ``tfr_phase`` is omitted the phase stored by the last
+        :meth:`forward` call is used; it must match ``tfr`` in shape.
         """
         if tfr.dim() == 2:
             tfr = tfr.unsqueeze(0)
             squeeze = True
-        else:
+        elif tfr.dim() == 3:
             squeeze = False
-        
+        else:
+            raise ValueError(f"tfr must be 2D or 3D, got shape {tuple(tfr.shape)}")
+
         if tfr_phase is None:
-            if not hasattr(self, '_last_phase'):
+            if self._last_phase is None:
                 raise ValueError("No phase information available. Run forward() first or provide tfr_phase.")
             tfr_phase = self._last_phase
-            if squeeze:
-                tfr_phase = tfr_phase.unsqueeze(0)
         elif tfr_phase.dim() == 2:
             tfr_phase = tfr_phase.unsqueeze(0)
-        
-        batch_size, n_windows, _ = tfr.shape
-        
-        # Reconstruct each window
-        recovered = []
-        for b in range(batch_size):
-            windows_recovered = []
-            for i in range(n_windows):
-                # Complex spectrum
-                complex_spec = tfr[b, i] * torch.exp(1j * tfr_phase[b, i])
-                # IFFT
-                time_signal = torch.fft.ifft(complex_spec)
-                complex_sum = torch.sum(time_signal)  # Sum complex FIRST
-                windows_recovered.append(torch.abs(complex_sum))  # Magnitude SECOND
-            recovered.append(torch.stack(windows_recovered))
-        
-        result = torch.stack(recovered)
-        
-        # Apply correction factor: beta (0.9) to match paper
+
+        if tfr_phase.shape != tfr.shape:
+            raise ValueError(
+                f"tfr_phase shape {tuple(tfr_phase.shape)} does not match tfr shape {tuple(tfr.shape)}"
+            )
+        tfr_phase = tfr_phase.to(device=tfr.device, dtype=tfr.dtype)
+
+        complex_spec = tfr * torch.exp(1j * tfr_phase)
+        time_signal = torch.fft.ifft(complex_spec, dim=-1)
+        result = time_signal.sum(dim=-1).abs()          # (batch, windows)
         result = self.beta * result
-        
+
         return result.squeeze(0) if squeeze else result
 
 
-class NTFAFeatureExtractor(nn.Module):
-    """NTFA-LK feature extractor for ML with interpolation."""
-    
-    def __init__(self, kernel_names=None, flatten=False, **kwargs):
+class DDKFFeatureExtractor(nn.Module):
+    """DDKF feature extractor for ML pipelines, optionally flattened."""
+
+    def __init__(self, kernel_names=None, flatten: bool = False, **kwargs):
         super().__init__()
-        self.ntfa = NTFALayer(kernel_names=kernel_names, **kwargs)
+        self.ddkf = DDKFLayer(kernel_names=kernel_names, **kwargs)
         self.flatten = flatten
-    
-    def forward(self, x):
-        tfr = self.ntfa(x)
-        return tfr.view(tfr.size(0), -1) if self.flatten else tfr
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        tfr = self.ddkf(x)
+        if not self.flatten:
+            return tfr
+        if tfr.dim() == 2:          # single (unbatched) signal
+            return tfr.reshape(-1)
+        return tfr.reshape(tfr.size(0), -1)
+
+
+# Aliases: the same algorithm is also published under the NTFA-LK name.
+NTFALayer = DDKFLayer
+NTFAFeatureExtractor = DDKFFeatureExtractor
